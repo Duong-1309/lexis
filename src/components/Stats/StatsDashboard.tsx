@@ -26,6 +26,8 @@ export function StatsDashboard({ onClose }: Props) {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    // TODO(stats): Revisit the source of truth after local SRS flow is finalized.
+    // Current metrics read mined_words, but deck/card/review data may need to drive this view.
     window.lexis.stats.getMiningStats().then((result) => {
       setLoading(false)
       if (result.error) { setError(result.error); return }

@@ -12,7 +12,7 @@ import { parseASS } from './services/parsers/ass'
 import { parseEPUBChapters, loadEPUBChapter } from './services/parsers/epub'
 import { calculateNextReview } from './services/srs'
 import { getSettings, setSettings } from './services/settings'
-import type { IPCResult, MediaSource, Language, DraftCard, ReviewRating } from '../src/types/index'
+import type { IPCResult, MediaSource, Language, DraftCard, CardUpdate, ReviewRating } from '../src/types/index'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -246,14 +246,20 @@ function setupIPCHandlers(): void {
   ipcMain.handle('cards:suspend', (_event, id: number) =>
     wrapResult(() => db.suspendCard(id)),
   )
+  ipcMain.handle('cards:unsuspend', (_event, ids: number[]) =>
+    wrapResult(() => db.unsuspendCards(ids)),
+  )
+  ipcMain.handle('cards:move', (_event, ids: number[], deckId: number) =>
+    wrapResult(() => db.moveCards(ids, deckId)),
+  )
   ipcMain.handle('cards:delete', (_event, id: number) =>
     wrapResult(() => db.deleteCard(id)),
   )
   ipcMain.handle('cards:is-duplicate', (_event, word: string, language: Language) =>
     wrapResult(() => db.isDuplicate(word, language)),
   )
-  ipcMain.handle('cards:update', (_event, id: number, frontHtml: string, backHtml: string, tags: string[]) =>
-    wrapResult(() => db.updateCardContent(id, frontHtml, backHtml, tags)),
+  ipcMain.handle('cards:update', (_event, id: number, updates: CardUpdate) =>
+    wrapResult(() => db.updateCardContent(id, updates)),
   )
 
   // ─── ai ─────────────────────────────────────────────────────────────────────

@@ -276,9 +276,11 @@ interface CardsAPI {
   review(cardId: number, rating: ReviewRating, timeTakenMs?: number): Promise<IPCResult<SRSResult>>;
 
   suspend(id: number): Promise<IPCResult<void>>;
+  unsuspend(ids: number[]): Promise<IPCResult<void>>;
+  move(ids: number[], deckId: number): Promise<IPCResult<void>>;
   delete(id: number): Promise<IPCResult<void>>;
   isDuplicate(word: string, language: Language): Promise<IPCResult<boolean>>;
-  update(id: number, frontHtml: string, backHtml: string, tags: string[]): Promise<IPCResult<void>>;
+  update(id: number, updates: CardUpdate): Promise<IPCResult<void>>;
 }
 ```
 
@@ -508,6 +510,8 @@ interface UserSettings {
 | `cards:create` | Renderer→Main | db.ts | Create local SRS card |
 | `cards:review` | Renderer→Main | srs.ts/db.ts | Apply SM-2 review |
 | `cards:suspend` | Renderer→Main | db.ts | Suspend card |
+| `cards:unsuspend` | Renderer→Main | db.ts | Restore card to active state |
+| `cards:move` | Renderer→Main | db.ts | Move cards to another deck |
 | `cards:delete` | Renderer→Main | db.ts | Delete card |
 | `cards:is-duplicate` | Renderer→Main | db.ts | Check local duplicate |
 | `cards:update` | Renderer→Main | db.ts | Update card content |

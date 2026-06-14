@@ -14,6 +14,7 @@ import type {
   ReviewRating,
   ReviewLog,
   CardState,
+  CardUpdate,
   ReadingProgress,
   DayStat,
   MiningStats,
@@ -483,6 +484,18 @@ export class DatabaseService {
 
   deleteDeck(id: number): void {
     this.assertInitialized()
+    const deck = this.getDeckById(id)
+    if (!deck) throw new Error(`Deck ${id} not found`)
+    const cardCount = this.db
+      .prepare('SELECT COUNT(*) as count FROM cards WHERE deck_id = ?')
+      .get(id) as { count: number }
+    if (cardCount.count > 0) {
+      throw new Error('Deck must be empty before it can be deleted')
+    }
+    const deckCount = this.db.prepare('SELECT COUNT(*) as count FROM decks').get() as { count: number }
+    if (deck.name === 'Default' && deckCount.count <= 1) {
+      throw new Error('Default deck cannot be deleted while it is the only deck')
+    }
     this.db.prepare('DELETE FROM decks WHERE id = ?').run(id)
   }
 
@@ -554,16 +567,71 @@ export class DatabaseService {
     this.db.prepare("UPDATE cards SET card_state = 'suspended' WHERE id = ?").run(id)
   }
 
+  unsuspendCards(ids: number[]): void {
+    this.assertInitialized()
+    if (ids.length === 0) return
+    const stmt = this.db.prepare(`
+      UPDATE cards
+      SET card_state = CASE
+        WHEN reps = 0 THEN 'new'
+        WHEN interval >= 21 THEN 'review'
+        ELSE 'learning'
+      END
+      WHERE id = ?
+    `)
+    const updateMany = this.db.transaction((cardIds: number[]) => {
+      for (const id of cardIds) stmt.run(id)
+    })
+    updateMany(ids)
+  }
+
+  moveCards(ids: number[], deckId: number): void {
+    this.assertInitialized()
+    if (ids.length === 0) return
+    if (!this.getDeckById(deckId)) throw new Error(`Deck ${deckId} not found`)
+    const stmt = this.db.prepare('UPDATE cards SET deck_id = ? WHERE id = ?')
+    const moveMany = this.db.transaction((cardIds: number[]) => {
+      for (const id of cardIds) stmt.run(deckId, id)
+    })
+    moveMany(ids)
+  }
+
   deleteCard(id: number): void {
     this.assertInitialized()
     this.db.prepare('DELETE FROM cards WHERE id = ?').run(id)
   }
 
-  updateCardContent(id: number, frontHtml: string, backHtml: string, tags: string[]): void {
+  updateCardContent(id: number, updates: CardUpdate): void {
     this.assertInitialized()
+    if (updates.deckId !== undefined && !this.getDeckById(updates.deckId)) {
+      throw new Error(`Deck ${updates.deckId} not found`)
+    }
     this.db
-      .prepare('UPDATE cards SET front_html = ?, back_html = ?, tags_json = ? WHERE id = ?')
-      .run(frontHtml, backHtml, JSON.stringify(tags), id)
+      .prepare(`
+        UPDATE cards
+        SET deck_id = COALESCE(?, deck_id),
+            front_html = ?,
+            back_html = ?,
+            tags_json = ?,
+            word = ?,
+            reading = ?,
+            language = ?,
+            source_sentence = ?,
+            source_id = ?
+        WHERE id = ?
+      `)
+      .run(
+        updates.deckId ?? null,
+        updates.frontHtml,
+        updates.backHtml,
+        JSON.stringify(updates.tags),
+        updates.word ?? null,
+        updates.reading ?? null,
+        updates.language ?? null,
+        updates.sourceSentence ?? null,
+        updates.sourceId ?? null,
+        id,
+      )
   }
 
   isDuplicate(word: string, language: Language): boolean {

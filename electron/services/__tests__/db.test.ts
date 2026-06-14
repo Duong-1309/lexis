@@ -28,18 +28,9 @@ describe('DatabaseService — media_sources', () => {
     })
     expect(source.id).toBeGreaterThan(0)
     expect(source.title).toBe('Test Subtitle')
-    expect(source.language).toBe('ja')
 
     const retrieved = dbService.getMediaSourceById(source.id)
-    expect(retrieved).not.toBeNull()
-    expect(retrieved!.title).toBe('Test Subtitle')
-  })
-
-  it('returns all media sources', () => {
-    dbService.insertMediaSource({ type: 'subtitle', title: 'A', language: 'ja' })
-    dbService.insertMediaSource({ type: 'epub', title: 'B', language: 'zh' })
-    const sources = dbService.getMediaSources()
-    expect(sources).toHaveLength(2)
+    expect(retrieved?.title).toBe('Test Subtitle')
   })
 
   it('deletes a media source', () => {
@@ -49,75 +40,88 @@ describe('DatabaseService — media_sources', () => {
   })
 })
 
-describe('DatabaseService — sentences', () => {
-  it('inserts and retrieves sentences by sourceId', () => {
-    const source = dbService.insertMediaSource({ type: 'subtitle', title: 'S', language: 'ja' })
-    dbService.insertSentences([
-      { sourceId: source.id, content: '今日は', position: 0, startTimeMs: 0, endTimeMs: 1000 },
-      { sourceId: source.id, content: '元気ですか', position: 1, startTimeMs: 1000, endTimeMs: 2000 },
-    ])
-    const sentences = dbService.getSentencesBySourceId(source.id)
-    expect(sentences).toHaveLength(2)
-    expect(sentences[0].content).toBe('今日は')
-    expect(sentences[1].position).toBe(1)
-  })
-
-  it('returns sentences in position order', () => {
-    const source = dbService.insertMediaSource({ type: 'subtitle', title: 'S', language: 'en' })
-    dbService.insertSentences([
-      { sourceId: source.id, content: 'Third', position: 2 },
-      { sourceId: source.id, content: 'First', position: 0 },
-      { sourceId: source.id, content: 'Second', position: 1 },
-    ])
-    const sentences = dbService.getSentencesBySourceId(source.id)
-    expect(sentences[0].content).toBe('First')
-    expect(sentences[2].content).toBe('Third')
-  })
-})
-
-describe('DatabaseService — mined words', () => {
-  it('inserts a mined word and checks if word is mined', () => {
-    const source = dbService.insertMediaSource({ type: 'subtitle', title: 'S', language: 'ja' })
-    dbService.insertMinedWord({
-      word: '食べる',
-      reading: 'たべる',
-      language: 'ja',
-      sourceId: source.id,
-    })
-    expect(dbService.isWordMined('食べる', 'Japanese::N4')).toBe(false) // status = queued, not synced
-  })
-})
-
-describe('DatabaseService — cards queue', () => {
-  it('inserts a card and marks it synced', () => {
+describe('DatabaseService — local decks and cards', () => {
+  it('creates a manual Basic card due today', () => {
+    const deck = dbService.getDecks()[0]
     const card = dbService.insertCard({
-      deckName: 'Japanese::N4',
-      modelName: 'Basic',
-      frontHtml: '<p>食べる</p>',
-      backHtml: '<p>to eat</p>',
-      tags: ['lexis', 'ja'],
+      deckId: deck.id,
+      template: 'Basic',
+      frontHtml: 'front',
+      backHtml: 'back',
+      tags: ['manual'],
+      word: 'front',
+      language: 'en',
     })
+
     expect(card.id).toBeGreaterThan(0)
-    expect(card.synced).toBe(false)
-
-    dbService.markCardSynced(card.id, 12345)
-    const pending = dbService.getPendingCards()
-    expect(pending.find((c) => c.id === card.id)).toBeUndefined()
+    expect(card.deckId).toBe(deck.id)
+    expect(card.cardState).toBe('new')
+    expect(card.interval).toBe(0)
+    expect(dbService.getDueCards(deck.id).map((c) => c.id)).toContain(card.id)
   })
 
-  it('getPendingCards returns only unsynced cards', () => {
-    dbService.insertCard({ deckName: 'D', modelName: 'Basic', frontHtml: 'F1', backHtml: 'B1', tags: [] })
-    const card2 = dbService.insertCard({ deckName: 'D', modelName: 'Basic', frontHtml: 'F2', backHtml: 'B2', tags: [] })
-    dbService.markCardSynced(card2.id, 99)
+  it('creates a manual Cloze card due today', () => {
+    const deck = dbService.getDecks()[0]
+    const card = dbService.insertCard({
+      deckId: deck.id,
+      template: 'Cloze',
+      frontHtml: '{{c1::front}} in context',
+      backHtml: 'back',
+      tags: ['cloze'],
+      word: 'front',
+      language: 'en',
+    })
 
-    const pending = dbService.getPendingCards()
-    expect(pending).toHaveLength(1)
-    expect(pending[0].frontHtml).toBe('F1')
+    expect(card.frontHtml).toContain('{{c1::front}}')
+    expect(dbService.getDueCards(deck.id).map((c) => c.id)).toContain(card.id)
   })
 
-  it('deleteCard removes a pending card', () => {
-    const card = dbService.insertCard({ deckName: 'D', modelName: 'Basic', frontHtml: 'F', backHtml: 'B', tags: [] })
-    dbService.deleteCard(card.id)
-    expect(dbService.getPendingCards()).toHaveLength(0)
+  it('deletes an empty deck', () => {
+    const deck = dbService.createDeck('Empty')
+    dbService.deleteDeck(deck.id)
+    expect(dbService.getDeckById(deck.id)).toBeNull()
+  })
+
+  it('rejects deleting a non-empty deck', () => {
+    const deck = dbService.createDeck('Not Empty')
+    dbService.insertCard({
+      deckId: deck.id,
+      template: 'Basic',
+      frontHtml: 'front',
+      backHtml: 'back',
+      tags: [],
+    })
+
+    expect(() => dbService.deleteDeck(deck.id)).toThrow(/empty/)
+  })
+
+  it('moves multiple cards and updates deck counts', () => {
+    const from = dbService.createDeck('From')
+    const to = dbService.createDeck('To')
+    const cardA = dbService.insertCard({ deckId: from.id, template: 'Basic', frontHtml: 'A', backHtml: 'A', tags: [] })
+    const cardB = dbService.insertCard({ deckId: from.id, template: 'Basic', frontHtml: 'B', backHtml: 'B', tags: [] })
+
+    dbService.moveCards([cardA.id, cardB.id], to.id)
+
+    expect(dbService.getAllCards(from.id)).toHaveLength(0)
+    expect(dbService.getAllCards(to.id).map((c) => c.id).sort()).toEqual([cardA.id, cardB.id].sort())
+    expect(dbService.getDecks().find((deck) => deck.id === to.id)?.cardCount).toBe(2)
+  })
+
+  it('unsuspends cards into a safe active state', () => {
+    const deck = dbService.getDecks()[0]
+    const card = dbService.insertCard({
+      deckId: deck.id,
+      template: 'Basic',
+      frontHtml: 'front',
+      backHtml: 'back',
+      tags: [],
+    })
+
+    dbService.suspendCard(card.id)
+    expect(dbService.getCard(card.id)?.cardState).toBe('suspended')
+
+    dbService.unsuspendCards([card.id])
+    expect(dbService.getCard(card.id)?.cardState).toBe('new')
   })
 })

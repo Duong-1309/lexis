@@ -11,6 +11,7 @@ import type {
   Deck,
   Card,
   DraftCard,
+  CardUpdate,
   SRSResult,
   ReviewRating,
   MiningStats,
@@ -68,11 +69,13 @@ const lexisAPI: LexisAPI = {
     review: (cardId: number, rating: ReviewRating, timeTakenMs?: number) =>
       ipcRenderer.invoke('cards:review', cardId, rating, timeTakenMs),
     suspend: (id: number) => ipcRenderer.invoke('cards:suspend', id),
+    unsuspend: (ids: number[]) => ipcRenderer.invoke('cards:unsuspend', ids),
+    move: (ids: number[], deckId: number) => ipcRenderer.invoke('cards:move', ids, deckId),
     delete: (id: number) => ipcRenderer.invoke('cards:delete', id),
     isDuplicate: (word: string, language: Language) =>
       ipcRenderer.invoke('cards:is-duplicate', word, language),
-    update: (id: number, frontHtml: string, backHtml: string, tags: string[]) =>
-      ipcRenderer.invoke('cards:update', id, frontHtml, backHtml, tags),
+    update: (id: number, updates: CardUpdate) =>
+      ipcRenderer.invoke('cards:update', id, updates),
   },
 
   ai: {

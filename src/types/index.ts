@@ -106,6 +106,18 @@ export interface DraftCard {
   sourceId?: number
 }
 
+export interface CardUpdate {
+  deckId?: number
+  frontHtml: string
+  backHtml: string
+  tags: string[]
+  word?: string
+  reading?: string
+  language?: Language
+  sourceSentence?: string
+  sourceId?: number
+}
+
 export interface ReviewLog {
   id: number
   cardId: number
@@ -266,9 +278,11 @@ export interface CardsAPI {
   create(draft: DraftCard): Promise<IPCResult<Card>>
   review(cardId: number, rating: ReviewRating, timeTakenMs?: number): Promise<IPCResult<SRSResult>>
   suspend(id: number): Promise<IPCResult<void>>
+  unsuspend(ids: number[]): Promise<IPCResult<void>>
+  move(ids: number[], deckId: number): Promise<IPCResult<void>>
   delete(id: number): Promise<IPCResult<void>>
   isDuplicate(word: string, language: Language): Promise<IPCResult<boolean>>
-  update(id: number, frontHtml: string, backHtml: string, tags: string[]): Promise<IPCResult<void>>
+  update(id: number, updates: CardUpdate): Promise<IPCResult<void>>
 }
 
 export interface AIAPI {
