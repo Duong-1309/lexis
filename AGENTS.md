@@ -150,6 +150,12 @@ npm run build
 npm run dist
 ```
 
+## Git Workflow Rule
+
+- Do not create commits immediately after making changes.
+- After implementation and verification, stop with the worktree changes uncommitted and report what changed.
+- Only commit after the user has checked the result and explicitly confirmed that it is ready to commit.
+
 ## Environment Variables
 
 Create `.env` at project root (gitignored):
