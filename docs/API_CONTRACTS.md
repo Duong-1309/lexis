@@ -419,13 +419,16 @@ interface StatsAPI {
 }
 
 interface MiningStats {
-  totalMined: number;
-  minedToday: number;
-  currentStreak: number;    // consecutive days with at least 1 mined word
+  totalCards: number;
+  cardsCreatedToday: number;
+  reviewsToday: number;
+  dueToday: number;
+  retentionRate: number;    // % of reviews rated Good/Easy
+  currentStreak: number;    // consecutive days with at least 1 review
   longestStreak: number;
   byLanguage: Record<string, number>;
-  recentWords: MinedWord[];  // last 10 mined words
-  dailyHistory: DayStat[];   // last 30 days
+  recentCards: Card[];       // last 10 created cards
+  dailyHistory: DayStat[];   // cards added over last 30 days
 }
 ```
 

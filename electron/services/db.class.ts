@@ -666,32 +666,60 @@ export class DatabaseService {
 
   // ─── Stats ────────────────────────────────────────────────────────────────────
 
-  getMinedCountByDay(days: number): DayStat[] {
+  getCardCountByDay(days: number): DayStat[] {
     this.assertInitialized()
     const rows = this.db
       .prepare(`
-        SELECT date(mined_at) as date, COUNT(*) as count
-        FROM mined_words
-        WHERE mined_at >= date('now', '-' || ? || ' days')
-        GROUP BY date(mined_at)
+        SELECT date(created_at) as date, COUNT(*) as count
+        FROM cards
+        WHERE created_at >= date('now', '-' || ? || ' days')
+        GROUP BY date(created_at)
         ORDER BY date ASC
       `)
       .all(days) as DbDayStat[]
     return rows
   }
 
-  getTotalMined(): number {
+  getMinedCountByDay(days: number): DayStat[] {
+    return this.getCardCountByDay(days)
+  }
+
+  getTotalCards(): number {
     this.assertInitialized()
     const row = this.db
-      .prepare('SELECT COUNT(*) as count FROM mined_words')
+      .prepare('SELECT COUNT(*) as count FROM cards')
+      .get() as { count: number }
+    return row.count
+  }
+
+  getTotalMined(): number {
+    return this.getTotalCards()
+  }
+
+  getCardsCreatedToday(): number {
+    this.assertInitialized()
+    const row = this.db
+      .prepare("SELECT COUNT(*) as count FROM cards WHERE date(created_at) = date('now')")
       .get() as { count: number }
     return row.count
   }
 
   getMinedToday(): number {
+    return this.getCardsCreatedToday()
+  }
+
+  getReviewsToday(): number {
     this.assertInitialized()
     const row = this.db
-      .prepare("SELECT COUNT(*) as count FROM mined_words WHERE date(mined_at) = date('now')")
+      .prepare("SELECT COUNT(*) as count FROM review_log WHERE date(reviewed_at) = date('now')")
+      .get() as { count: number }
+    return row.count
+  }
+
+  getDueToday(): number {
+    this.assertInitialized()
+    const row = this.db
+      .prepare("SELECT COUNT(*) as count FROM cards WHERE due_date <= date('now') AND card_state != 'suspended'")
       .get() as { count: number }
     return row.count
   }
@@ -701,9 +729,8 @@ export class DatabaseService {
     const rows = this.db
       .prepare(`
         WITH daily AS (
-          SELECT DISTINCT date(mined_at) as day
-          FROM mined_words
-          WHERE status != 'failed'
+          SELECT DISTINCT date(reviewed_at) as day
+          FROM review_log
           ORDER BY day DESC
         ),
         numbered AS (
@@ -726,9 +753,8 @@ export class DatabaseService {
     const row = this.db
       .prepare(`
         WITH daily AS (
-          SELECT DISTINCT date(mined_at) as day
-          FROM mined_words
-          WHERE status != 'failed'
+          SELECT DISTINCT date(reviewed_at) as day
+          FROM review_log
         ),
         gaps AS (
           SELECT day,
@@ -749,17 +775,42 @@ export class DatabaseService {
     return row.longest
   }
 
+  getRetentionRate(): number {
+    this.assertInitialized()
+    const row = this.db
+      .prepare(`
+        SELECT
+          COUNT(*) as total,
+          SUM(CASE WHEN rating >= 3 THEN 1 ELSE 0 END) as correct
+        FROM review_log
+      `)
+      .get() as { total: number; correct: number | null }
+    if (row.total === 0) return 0
+    return Math.round(((row.correct ?? 0) / row.total) * 100)
+  }
+
+  getRecentCards(limit = 10): Card[] {
+    this.assertInitialized()
+    const rows = this.db
+      .prepare('SELECT * FROM cards ORDER BY created_at DESC LIMIT ?')
+      .all(limit) as DbCard[]
+    return rows.map(this.rowToCard)
+  }
+
   getMiningStats(): MiningStats {
     this.assertInitialized()
-    const totalMined = this.getTotalMined()
-    const minedToday = this.getMinedToday()
+    const totalCards = this.getTotalCards()
+    const cardsCreatedToday = this.getCardsCreatedToday()
+    const reviewsToday = this.getReviewsToday()
+    const dueToday = this.getDueToday()
+    const retentionRate = this.getRetentionRate()
     const currentStreak = this.getCurrentStreak()
-    const dailyHistory = this.getMinedCountByDay(30)
-    const recentWords = this.getMinedWords().slice(0, 10)
+    const dailyHistory = this.getCardCountByDay(30)
+    const recentCards = this.getRecentCards(10)
 
     const byLangRows = this.db
       .prepare(
-        'SELECT language, COUNT(*) as count FROM mined_words GROUP BY language',
+        'SELECT language, COUNT(*) as count FROM cards WHERE language IS NOT NULL GROUP BY language',
       )
       .all() as { language: string; count: number }[]
 
@@ -771,12 +822,15 @@ export class DatabaseService {
     const longestStreak = this.getLongestStreak()
 
     return {
-      totalMined,
-      minedToday,
+      totalCards,
+      cardsCreatedToday,
+      reviewsToday,
+      dueToday,
+      retentionRate,
       currentStreak,
       longestStreak,
       byLanguage,
-      recentWords,
+      recentCards,
       dailyHistory,
     }
   }

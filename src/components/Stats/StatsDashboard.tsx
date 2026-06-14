@@ -26,8 +26,6 @@ export function StatsDashboard({ onClose }: Props) {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    // TODO(stats): Revisit the source of truth after local SRS flow is finalized.
-    // Current metrics read mined_words, but deck/card/review data may need to drive this view.
     window.lexis.stats.getMiningStats().then((result) => {
       setLoading(false)
       if (result.error) { setError(result.error); return }
@@ -59,16 +57,23 @@ export function StatsDashboard({ onClose }: Props) {
       {stats && (
         <div className="flex-1 overflow-y-auto p-6 space-y-5 max-w-5xl mx-auto w-full">
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-            <StatCard label="Total Mined" value={stats.totalMined.toLocaleString()} />
-            <StatCard label="Mined Today" value={stats.minedToday} />
-            <StatCard label="Current Streak" value={stats.currentStreak > 0 ? `🔥 ${stats.currentStreak}d` : '0d'} />
-            <StatCard label="Longest Streak" value={`${stats.longestStreak}d`} />
+            <StatCard label="Total Cards" value={stats.totalCards.toLocaleString()} />
+            <StatCard label="Cards Today" value={stats.cardsCreatedToday} />
+            <StatCard label="Reviews Today" value={stats.reviewsToday} />
+            <StatCard label="Due Today" value={stats.dueToday} />
           </div>
 
           <div className="bg-gray-800 rounded-lg p-4">
-            <h3 className="text-sm font-medium text-gray-300 mb-4">Words Mined — Last 30 Days</h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-medium text-gray-300">Cards Added — Last 30 Days</h3>
+              <div className="flex items-center gap-4 text-xs text-gray-500">
+                <span>Review streak: {stats.currentStreak}d</span>
+                <span>Best: {stats.longestStreak}d</span>
+                <span>Retention: {stats.retentionRate}%</span>
+              </div>
+            </div>
             {stats.dailyHistory.length === 0 ? (
-              <p className="text-xs text-gray-500 py-8 text-center">No mining activity yet</p>
+              <p className="text-xs text-gray-500 py-8 text-center">No cards added yet</p>
             ) : (
               <ResponsiveContainer width="100%" height={160}>
                 <BarChart data={stats.dailyHistory} margin={{ top: 0, right: 4, bottom: 0, left: -20 }}>
@@ -85,7 +90,7 @@ export function StatsDashboard({ onClose }: Props) {
                     itemStyle={{ color: '#60a5fa' }}
                     cursor={{ fill: 'rgba(255,255,255,0.05)' }}
                   />
-                  <Bar dataKey="count" name="Words" fill="#3b82f6" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="count" name="Cards" fill="#3b82f6" radius={[3, 3, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -108,7 +113,7 @@ export function StatsDashboard({ onClose }: Props) {
                         <div className="flex-1 h-1.5 bg-gray-700 rounded-full overflow-hidden">
                           <div
                             className="h-full bg-blue-500 rounded-full"
-                            style={{ width: `${Math.round((count / stats.totalMined) * 100)}%` }}
+                            style={{ width: `${stats.totalCards === 0 ? 0 : Math.round((count / stats.totalCards) * 100)}%` }}
                           />
                         </div>
                         <span className="text-xs text-gray-400 w-8 text-right shrink-0">{count}</span>
@@ -119,16 +124,16 @@ export function StatsDashboard({ onClose }: Props) {
             </div>
 
             <div className="bg-gray-800 rounded-lg p-4">
-              <h3 className="text-sm font-medium text-gray-300 mb-3">Recently Mined</h3>
-              {stats.recentWords.length === 0 ? (
-                <p className="text-xs text-gray-500">No words yet</p>
+              <h3 className="text-sm font-medium text-gray-300 mb-3">Recent Cards</h3>
+              {stats.recentCards.length === 0 ? (
+                <p className="text-xs text-gray-500">No cards yet</p>
               ) : (
                 <div className="space-y-1.5">
-                  {stats.recentWords.map((w) => (
-                    <div key={w.id} className="flex items-center gap-2 text-xs">
-                      <span className="font-medium text-gray-200">{w.word}</span>
-                      {w.reading && <span className="text-gray-500">{w.reading}</span>}
-                      <span className="ml-auto text-gray-500 uppercase text-[10px]">{w.language}</span>
+                  {stats.recentCards.map((card) => (
+                    <div key={card.id} className="flex items-center gap-2 text-xs">
+                      <span className="font-medium text-gray-200">{card.word ?? card.frontHtml}</span>
+                      {card.reading && <span className="text-gray-500">{card.reading}</span>}
+                      <span className="ml-auto text-gray-500 uppercase text-[10px]">{card.language ?? '—'}</span>
                     </div>
                   ))}
                 </div>

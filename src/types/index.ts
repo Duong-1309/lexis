@@ -191,12 +191,15 @@ export interface DayStat {
 }
 
 export interface MiningStats {
-  totalMined: number
-  minedToday: number
+  totalCards: number
+  cardsCreatedToday: number
+  reviewsToday: number
+  dueToday: number
+  retentionRate: number
   currentStreak: number
   longestStreak: number
   byLanguage: Record<string, number>
-  recentWords: MinedWord[]
+  recentCards: Card[]
   dailyHistory: DayStat[]
 }
 
