@@ -1,5 +1,5 @@
 # Business Requirements Document (BRD)
-# Lexis — Sentence Mining & Anki Desktop App
+# Lexis — Sentence Mining & SRS Desktop App
 
 **Version:** 1.0  
 **Status:** Approved  
@@ -10,7 +10,7 @@
 
 ## 1. Executive Summary
 
-Lexis is a desktop application that eliminates the friction between consuming foreign language content and creating high-quality Anki flashcards. The core insight is that the best flashcards come from real content the learner is already engaging with — but the current workflow of switching between a media player, dictionary, and Anki breaks immersion and takes 2–3 minutes per word. Lexis collapses this into a single application where the entire cycle — read, look up, build card, sync — takes under 20 seconds.
+Lexis is a desktop application that eliminates the friction between consuming foreign language content and creating high-quality flashcards. The core insight is that the best cards come from real content the learner is already engaging with — but the current workflow of switching between a reader, dictionary, and review tool breaks immersion and takes 2–3 minutes per word. Lexis collapses this into a single application where the entire cycle — read, look up, build card, review — takes under 20 seconds to create and schedules reviews locally.
 
 ---
 
@@ -21,9 +21,9 @@ Lexis is a desktop application that eliminates the friction between consuming fo
 | Pain Point | Impact | Frequency |
 |-----------|--------|-----------|
 | Switching between 4+ apps per mining session | High context-switching cost | Every session |
-| Manual copy-paste of sentences into Anki | ~45 seconds per card | Every card |
+| Manual copy-paste of sentences into flashcards | ~45 seconds per card | Every card |
 | Losing reading position when looking up words | Breaks immersion | Multiple times/session |
-| No de-duplication of mined words | Duplicate cards in Anki deck | Weekly |
+| No de-duplication of mined words | Duplicate cards in review deck | Weekly |
 | No record of what media a word came from | Cards lack context | Every card |
 | Audio pronunciation requires separate lookup | Additional 30s per card | ~50% of cards |
 
@@ -40,11 +40,11 @@ A learner mining 20 words per day currently spends approximately:
 
 | ID | Objective | KPI | Target |
 |----|-----------|-----|--------|
-| BO-01 | Reduce card creation time | Seconds from highlight to Anki sync | < 20 seconds |
+| BO-01 | Reduce card creation time | Seconds from highlight to saved card | < 20 seconds |
 | BO-02 | Single-app workflow | Number of external apps needed during mining | 0 |
 | BO-03 | Multi-language support | Languages supported at launch | JP, ZH, KR, EN, FR, ES |
 | BO-04 | Data locality | % of user data stored locally | 100% (except opt-in AI) |
-| BO-05 | Offline usability | Core features available offline | Reader + Dictionary + Card queue |
+| BO-05 | Offline usability | Core features available offline | Reader + Dictionary + Local SRS |
 
 ---
 
@@ -58,9 +58,9 @@ A learner mining 20 words per day currently spends approximately:
 - Integrated dictionary (JMdict for Japanese, CC-CEDICT for Chinese, wiktionary for others)
 - Word lookup on double-click/selection
 - Audio pronunciation (Forvo API + TTS fallback)
-- Anki card creation with Basic and Cloze templates
-- AnkiConnect sync (add notes, check duplicates)
-- Card queue with offline buffering
+- Local card creation with Basic and Cloze templates
+- Built-in decks, duplicate checks, and SM-2 scheduling
+- Offline review queue via local due cards
 - Hotkey-driven workflow (Shift+A to mine)
 - Basic mining history and statistics
 
@@ -78,7 +78,6 @@ A learner mining 20 words per day currently spends approximately:
 - Video playback with embedded subtitles (subtitle file import only)
 - DRM-protected ebook support (legal constraint)
 - PDF reader (complex layout, defer to v2)
-- Spaced repetition engine (defer to Anki, not replacing it)
 - Cloud sync of user data
 - Monetization / subscription features
 
@@ -88,10 +87,10 @@ A learner mining 20 words per day currently spends approximately:
 
 ### Persona A: "The Immersion Learner" (Primary)
 - **Profile:** Adult learner (20–35), learning Japanese or Chinese, B1–B2 level
-- **Behavior:** Watches anime/dramas with subtitles, reads light novels, does Anki daily
+- **Behavior:** Watches anime/dramas with subtitles, reads light novels, reviews flashcards daily
 - **Pain point:** Current workflow breaks immersion constantly
 - **Goal:** Mine 15–30 words per day from real content
-- **Technical comfort:** Medium — comfortable with Anki, not a developer
+- **Technical comfort:** Medium — comfortable with flashcard apps, not a developer
 
 ### Persona B: "The Polyglot Student"
 - **Profile:** University student, learning 2+ languages simultaneously
@@ -144,22 +143,22 @@ A learner mining 20 words per day currently spends approximately:
 | FR-C02 | Basic card template | P1 | Front: sentence with target word highlighted; Back: reading + definition + audio |
 | FR-C03 | Cloze card template | P1 | Target word replaced with [...] on front |
 | FR-C04 | Edit card before sending | P1 | Both front and back fields are editable before confirming |
-| FR-C05 | Preview rendered card | P1 | WYSIWYG preview matching what Anki will display |
+| FR-C05 | Preview rendered card | P1 | WYSIWYG preview matching Lexis review display |
 | FR-C06 | Hotkey to create card | P1 | Shift+A creates card from current selection; Ctrl+Enter confirms and sends |
 | FR-C07 | Tag card | P2 | Auto-tag with: source name, language, current date. User can add custom tags |
-| FR-C08 | Select target Anki deck | P1 | Dropdown of all Anki decks; remembers last used per language |
+| FR-C08 | Select target deck | P1 | Dropdown of all local decks; remembers last used deck |
 
-### 6.4 Anki Integration Module
+### 6.4 Local SRS Module
 
 | ID | Requirement | Priority | Acceptance Criteria |
 |----|-------------|----------|---------------------|
-| FR-A01 | Connect to AnkiConnect | P1 | Status indicator shows connected/disconnected; auto-retry every 10s |
-| FR-A02 | Add note to Anki | P1 | Note appears in selected deck immediately after confirm |
-| FR-A03 | Duplicate detection | P1 | Before adding, check if word exists in target deck; warn user |
-| FR-A04 | Offline card queue | P1 | Cards created when Anki offline are queued; auto-sync when connection restored |
-| FR-A05 | Attach audio file | P1 | Audio file added to Anki media folder and referenced in card |
-| FR-A06 | Fetch deck list | P1 | Dropdown populated with all Anki decks |
-| FR-A07 | Sync queue status | P2 | UI shows count of pending cards in queue |
+| FR-SRS01 | Create local decks | P1 | User can create, rename, and delete decks |
+| FR-SRS02 | Add card to deck | P1 | Card appears in selected deck immediately after confirm |
+| FR-SRS03 | Duplicate detection | P1 | Before adding, check if word exists in local cards; warn user |
+| FR-SRS04 | Schedule new cards | P1 | New cards are due on the same day |
+| FR-SRS05 | Review due cards | P1 | User can flip cards and rate Again/Hard/Good/Easy |
+| FR-SRS06 | SM-2 scheduling | P1 | Rating updates due date, interval, ease, reps, and lapses |
+| FR-SRS07 | Review history | P2 | Each review writes an immutable review_log row |
 
 ### 6.5 AI Module (v1.1)
 
@@ -182,7 +181,7 @@ A learner mining 20 words per day currently spends approximately:
 | App startup time | < 3 seconds to interactive state |
 | Dictionary lookup (local cache hit) | < 50ms |
 | Dictionary lookup (DB query) | < 150ms |
-| AnkiConnect add note | < 500ms |
+| Local card creation | < 100ms |
 | Reader file load (10MB EPUB) | < 2 seconds |
 | Memory usage (idle) | < 200MB RAM |
 | Memory usage (active session) | < 500MB RAM |
@@ -217,7 +216,7 @@ A learner mining 20 words per day currently spends approximately:
 | Reader (all formats) | ✅ | |
 | Dictionary lookup (JMdict/CEDICT) | ✅ | |
 | Card creation + queue | ✅ | |
-| Anki sync | ✅ (localhost) | |
+| Local SRS review | ✅ | |
 | Audio (Forvo) | | ✅ (unless cached) |
 | Audio (TTS) | | ✅ |
 | Web article import | | ✅ |
@@ -265,7 +264,7 @@ A learner mining 20 words per day currently spends approximately:
 - Shows: kanji form, all readings (hiragana), all meanings grouped by POS, JLPT level badge
 - Shows example sentences from JMdict if available
 
-**US-005** — As a learner, I want to hear the pronunciation of any looked-up word so that my Anki cards include audio I've verified is correct.
+**US-005** — As a learner, I want to hear the pronunciation of any looked-up word so that my cards include audio I've verified is correct.
 
 *Acceptance Criteria:*
 - Audio button appears on every lookup result
@@ -276,7 +275,7 @@ A learner mining 20 words per day currently spends approximately:
 
 ### Epic 3: Card Creation
 
-**US-006** — As a learner, I want to press Shift+A after looking up a word to generate a pre-filled Anki card so that I can review and send it in under 10 seconds.
+**US-006** — As a learner, I want to press Shift+A after looking up a word to generate a pre-filled flashcard so that I can review and save it in under 10 seconds.
 
 *Acceptance Criteria:*
 - Hotkey works whenever the LookupPanel shows a result
@@ -284,37 +283,37 @@ A learner mining 20 words per day currently spends approximately:
 - Pressing Ctrl+Enter sends immediately; pressing Escape cancels
 - Success toast shows: "Card added to [deck name]"
 
-**US-007** — As a learner, I want to see a WYSIWYG preview of my card before sending it so that I can verify it looks correct in Anki.
+**US-007** — As a learner, I want to see a WYSIWYG preview of my card before saving it so that I can verify it looks correct in review.
 
 *Acceptance Criteria:*
-- Preview panel shows front and back as they will appear in Anki
+- Preview panel shows front and back as they will appear in Lexis review
 - Word in front is highlighted/bolded
 - Audio icon shown if audio attached
 - Preview updates in real-time as user edits fields
 
-**US-008** — As a learner, I want my cards to be automatically tagged with the source media name and date so that I can filter my Anki deck by source later.
+**US-008** — As a learner, I want my cards to be automatically tagged with the source media name and date so that I can filter my deck by source later.
 
 *Acceptance Criteria:*
 - Auto-tags applied: `lexis`, `{source-name-slugified}`, `{YYYY-MM}`, `{language}`
 - Tags visible in Card Builder before sending
 - User can add or remove tags before sending
-- Tags appear correctly in Anki after sync
+- Tags appear correctly on the local card after saving
 
-### Epic 4: Anki Sync
+### Epic 4: Local Review
 
-**US-009** — As a learner, I want the app to queue my cards when Anki is closed so that I don't lose cards if I mine without Anki running.
-
-*Acceptance Criteria:*
-- Status bar shows "Anki offline — X cards queued" when AnkiConnect unreachable
-- Cards saved to `cards_queue` table with `synced = false`
-- When Anki comes online, queued cards sync automatically within 30 seconds
-- Status bar updates to "Synced" with card count after successful sync
-
-**US-010** — As a learner, I want the app to warn me if a word I'm about to add already exists in my Anki deck so that I don't create duplicates.
+**US-009** — As a learner, I want newly mined cards to be due immediately so that I can review them without leaving Lexis.
 
 *Acceptance Criteria:*
-- Before adding, app calls AnkiConnect `findNotes` with the word
-- If duplicate found: shows warning "This word may already be in your deck" with option to view existing note or add anyway
+- New cards are saved to the `cards` table with `due_date = date('now')`
+- Review entry point shows due counts per deck
+- Review session flips front/back and accepts ratings 1-4
+- Each rating updates schedule and writes `review_log`
+
+**US-010** — As a learner, I want the app to warn me if a word I'm about to add already exists in my local decks so that I don't create duplicates.
+
+*Acceptance Criteria:*
+- Before adding, app checks local cards by word and language
+- If duplicate found: shows warning "This word may already be in your deck" with option to continue
 - Duplicate check completes in < 300ms
 - Warning is non-blocking (user can still add if they choose)
 
@@ -324,17 +323,15 @@ A learner mining 20 words per day currently spends approximately:
 
 ### Constraints
 1. App will NOT strip DRM from ebook files — legal constraint
-2. Users must have Anki installed separately and AnkiConnect add-on enabled
-3. Forvo API key required for Forvo audio (free tier available)
-4. AI features require user to supply their own Anthropic API key (BYOK)
-5. Dictionary data (JMdict, CC-CEDICT) is publicly licensed but large (~150MB bundled)
+2. Forvo API key required for Forvo audio (free tier available)
+3. AI features require user to supply their own Anthropic/OpenAI API key (BYOK)
+4. Dictionary data (JMdict, CC-CEDICT, WordNet) is publicly licensed but large (~150MB bundled)
 
 ### Assumptions
-1. Target users have Anki 2.1.49+ installed
-2. Target users are familiar with Anki's basic concepts (decks, cards, templates)
-3. Japanese tokenization accuracy acceptable via kuromoji (not 100% but sufficient for mining)
-4. Network available for initial dictionary download during setup
-5. Users accept that AI calls send sentence text to Anthropic's API
+1. Target users are familiar with basic flashcard concepts (decks, cards, reviews)
+2. Japanese tokenization accuracy acceptable via kuromoji (not 100% but sufficient for mining)
+3. Network available for initial dictionary download during setup
+4. Users accept that AI calls send sentence text to the selected AI provider
 
 ---
 
@@ -342,9 +339,8 @@ A learner mining 20 words per day currently spends approximately:
 
 | Dependency | Type | Risk | Mitigation |
 |------------|------|------|------------|
-| AnkiConnect add-on | External | Medium | App works without it; cards queue locally |
 | Forvo API | External | Low | TTS fallback always available |
-| Anthropic API | External | Low | AI features are opt-in; app fully functional without |
+| Anthropic/OpenAI API | External | Low | AI features are opt-in; app fully functional without |
 | JMdict license | Data | Low | Public domain; download at build time |
 | CC-CEDICT license | Data | Low | Creative Commons; download at build time |
 | kuromoji (JP tokenizer) | NPM | Low | Stable, widely used library |
@@ -357,9 +353,9 @@ A learner mining 20 words per day currently spends approximately:
 | Metric | Measurement Method | Target (3 months) |
 |--------|-------------------|-------------------|
 | Cards created per user per day | Local analytics (opt-in) | > 15 cards/day |
-| Time per card | Measure from hotkey to Anki confirm | < 20 seconds median |
+| Time per card | Measure from hotkey to saved card | < 20 seconds median |
 | Session length | Time with app in focus | > 20 min/session |
-| Anki sync success rate | Failed syncs / total attempts | > 99% |
+| Review completion rate | Completed reviews / due cards | > 80% |
 | App crash rate | Crash reports (opt-in) | < 0.1% of sessions |
 
 ---

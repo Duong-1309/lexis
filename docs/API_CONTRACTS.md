@@ -21,7 +21,7 @@ interface LexisAPI {
   reader: ReaderAPI;
   dictionary: DictionaryAPI;
   audio: AudioAPI;
-  anki: AnkiAPI;
+  decks: DecksAPI;
   cards: CardsAPI;
   ai: AIAPI;
   stats: StatsAPI;
@@ -45,7 +45,12 @@ interface MediaAPI {
    * Open system file picker for subtitle or EPUB import.
    * Returns the parsed media source after successful import.
    */
-  importFile(type: 'subtitle' | 'epub'): Promise<IPCResult<MediaSource>>;
+  importFile(type: 'subtitle' | 'epub', language?: Language): Promise<IPCResult<MediaSource>>;
+
+  /**
+   * Import a known path. Used by tests and drag-and-drop.
+   */
+  importFromPath(filePath: string, language?: Language): Promise<IPCResult<MediaSource>>;
 
   /**
    * Import a web article from URL.
@@ -60,7 +65,7 @@ interface MediaAPI {
 
   /**
    * Delete a media source and all its sentences/progress.
-   * Cards already synced to Anki are NOT deleted from Anki.
+   * Local cards referencing the source remain in the deck.
    */
   delete(sourceId: number): Promise<IPCResult<void>>;
 
@@ -218,80 +223,72 @@ protocol.registerFileProtocol('lexis-audio', (request, callback) => {
 
 ---
 
-## `window.lexis.anki` — AnkiConnect Integration
+## `window.lexis.decks` — Local Deck Management
 
 ```typescript
-interface AnkiAPI {
+interface DecksAPI {
   /**
-   * Check if AnkiConnect is reachable.
-   * Should be called on interval (every 10s) to maintain status indicator.
+   * List all local decks with computed counts.
    */
-  checkConnection(): Promise<IPCResult<boolean>>;
+  list(): Promise<IPCResult<Deck[]>>;
 
   /**
-   * Get all deck names from Anki.
+   * Create a new local deck.
    */
-  getDeckNames(): Promise<IPCResult<string[]>>;
+  create(name: string, description?: string): Promise<IPCResult<Deck>>;
 
   /**
-   * Add a single note to Anki.
-   * Returns the Anki note ID.
+   * Rename a deck.
    */
-  addNote(card: Card): Promise<IPCResult<number>>;
+  rename(id: number, name: string): Promise<IPCResult<void>>;
 
   /**
-   * Check if a note with this word already exists in the specified deck.
-   * Returns array of matching note IDs (empty = no duplicate).
+   * Delete a deck and its cards.
    */
-  findDuplicates(word: string, deckName: string): Promise<IPCResult<number[]>>;
-
-  /**
-   * Sync all pending cards from the local queue to Anki.
-   * Called automatically when connection is restored.
-   * Returns count of successfully synced cards.
-   */
-  syncQueue(): Promise<IPCResult<{ synced: number; failed: number }>>;
-
-  /**
-   * Get count of pending (unsynced) cards in queue.
-   */
-  getPendingCount(): Promise<IPCResult<number>>;
+  delete(id: number): Promise<IPCResult<void>>;
 }
 ```
 
-### IPC Channel: `anki:add-note`
-**Main handler behavior:**
-1. If AnkiConnect unreachable → save to `cards_queue` (synced=false) → return success with note: "queued"
-2. If audio exists → call `storeMediaFile` to upload audio to Anki media folder
-3. Call `addNote` on AnkiConnect
-4. On success → insert into `mined_words` with `anki_note_id`, update `cards_queue` synced=true
-5. On failure → save to queue → return with error message
-
 ---
 
-## `window.lexis.cards` — Card Queue Management
+## `window.lexis.cards` — Local SRS Cards
 
 ```typescript
 interface CardsAPI {
   /**
-   * Get all pending (unsynced) cards.
+   * Get due cards for a deck.
    */
-  getPendingCards(): Promise<IPCResult<Card[]>>;
+  due(deckId: number): Promise<IPCResult<Card[]>>;
 
   /**
-   * Get all cards (for history view), paginated.
+   * Get all cards in a deck.
    */
-  getCards(page: number, pageSize: number): Promise<IPCResult<{
-    cards: Card[];
-    total: number;
-  }>>;
+  all(deckId: number): Promise<IPCResult<Card[]>>;
 
   /**
-   * Delete a pending card from the queue (without syncing).
+   * Create a local card due today.
    */
-  deleteCard(cardId: number): Promise<IPCResult<void>>;
+  create(draft: DraftCard): Promise<IPCResult<Card>>;
+
+  /**
+   * Apply a review rating and update SM-2 scheduling fields.
+   */
+  review(cardId: number, rating: ReviewRating, timeTakenMs?: number): Promise<IPCResult<SRSResult>>;
+
+  suspend(id: number): Promise<IPCResult<void>>;
+  delete(id: number): Promise<IPCResult<void>>;
+  isDuplicate(word: string, language: Language): Promise<IPCResult<boolean>>;
+  update(id: number, frontHtml: string, backHtml: string, tags: string[]): Promise<IPCResult<void>>;
 }
 ```
+
+### IPC Channel: `cards:review`
+**Main handler behavior:**
+1. Load the card from SQLite.
+2. Run `calculateNextReview(card, rating)`.
+3. Update the card's `due_date`, `interval`, `ease_factor`, `reps`, `lapses`, and `card_state`.
+4. Insert an immutable `review_log` row.
+5. Return the `SRSResult`.
 
 ---
 
@@ -302,7 +299,7 @@ AI responses stream via IPC events, not standard invoke/result.
 ```typescript
 interface AIAPI {
   /**
-   * Check if an Anthropic API key is configured.
+   * Check if the selected AI provider has an API key configured.
    */
   hasApiKey(): Promise<IPCResult<boolean>>;
 
@@ -447,10 +444,9 @@ interface SettingsAPI {
   set(updates: Partial<UserSettings>): Promise<IPCResult<void>>;
 
   /**
-   * Test Anthropic API key validity.
-   * Makes a minimal API call to verify the key.
+   * Test Anthropic/OpenAI API key validity.
    */
-  testAnthropicKey(apiKey: string): Promise<IPCResult<boolean>>;
+  testAIKey(apiKey: string, provider: AIProvider): Promise<IPCResult<boolean>>;
 
   /**
    * Open OS file picker to select a directory.
@@ -460,13 +456,12 @@ interface SettingsAPI {
 }
 
 interface UserSettings {
-  // Anki
-  ankiConnectUrl: string;           // default: "http://localhost:8765"
-  defaultDeckByLanguage: Record<Language, string>;
-  defaultCardTemplate: 'Basic' | 'Cloze';
+  defaultDeckId: number;
 
   // APIs
-  anthropicApiKey: string;          // stored encrypted in OS keychain
+  aiProvider: 'anthropic' | 'openai';
+  anthropicApiKey: string;
+  openaiApiKey: string;
   forvoApiKey: string;
 
   // Reader
@@ -478,6 +473,7 @@ interface UserSettings {
   theme: 'light' | 'dark' | 'system';
   language: string;                 // UI language (en, ja, zh, etc.)
   checkForUpdates: boolean;
+  firstLaunchDone: boolean;
 }
 ```
 
@@ -488,6 +484,7 @@ interface UserSettings {
 | Channel | Direction | Handler | Description |
 |---------|-----------|---------|-------------|
 | `media:import-file` | Renderer→Main | main.ts | Open file dialog + parse |
+| `media:import-from-path` | Renderer→Main | main.ts | Parse a known file path |
 | `media:import-url` | Renderer→Main | main.ts | Fetch + extract web article |
 | `media:list` | Renderer→Main | db.ts | Get all media sources |
 | `media:delete` | Renderer→Main | db.ts | Delete source + cascade |
@@ -502,15 +499,18 @@ interface UserSettings {
 | `dictionary:tokenize` | Renderer→Main | dictionary.ts | Tokenize text |
 | `dictionary:autocomplete` | Renderer→Main | dictionary.ts | Word prefix search |
 | `audio:get-path` | Renderer→Main | audio.ts | Get/fetch audio file |
-| `anki:check-connection` | Renderer→Main | anki.ts | Ping AnkiConnect |
-| `anki:get-decks` | Renderer→Main | anki.ts | Get deck list |
-| `anki:add-note` | Renderer→Main | anki.ts | Add note (or queue) |
-| `anki:find-duplicates` | Renderer→Main | anki.ts | Check for existing notes |
-| `anki:sync-queue` | Renderer→Main | anki.ts | Drain pending queue |
-| `anki:pending-count` | Renderer→Main | anki.ts | Count queued cards |
-| `cards:get-pending` | Renderer→Main | db.ts | List pending cards |
-| `cards:get-all` | Renderer→Main | db.ts | Paginated card history |
-| `cards:delete` | Renderer→Main | db.ts | Delete pending card |
+| `decks:list` | Renderer→Main | db.ts | List local decks with counts |
+| `decks:create` | Renderer→Main | db.ts | Create local deck |
+| `decks:rename` | Renderer→Main | db.ts | Rename local deck |
+| `decks:delete` | Renderer→Main | db.ts | Delete local deck |
+| `cards:due` | Renderer→Main | db.ts | List due cards for deck |
+| `cards:all` | Renderer→Main | db.ts | List all cards for deck |
+| `cards:create` | Renderer→Main | db.ts | Create local SRS card |
+| `cards:review` | Renderer→Main | srs.ts/db.ts | Apply SM-2 review |
+| `cards:suspend` | Renderer→Main | db.ts | Suspend card |
+| `cards:delete` | Renderer→Main | db.ts | Delete card |
+| `cards:is-duplicate` | Renderer→Main | db.ts | Check local duplicate |
+| `cards:update` | Renderer→Main | db.ts | Update card content |
 | `ai:explain-grammar` | Renderer→Main | ai.ts | Start grammar stream |
 | `ai:translate` | Renderer→Main | ai.ts | Start translation stream |
 | `ai:examples` | Renderer→Main | ai.ts | Start examples stream |

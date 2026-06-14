@@ -23,7 +23,7 @@ Lexis follows the standard Electron two-process architecture with strict securit
 │  │  │  ─────────────────   │    │       │  (Chromium/React)  │ │   │
 │  │  │  db.ts (SQLite)      │    │       │                    │ │   │
 │  │  │  dictionary.ts       │    │       │  React Components  │ │   │
-│  │  │  anki.ts             │    │       │  Zustand Stores    │ │   │
+│  │  │  srs.ts              │    │       │  Zustand Stores    │ │   │
 │  │  │  ai.ts               │    │       │  Tailwind CSS      │ │   │
 │  │  │  audio.ts            │    │       │                    │ │   │
 │  │  │  parsers/            │    │       └────────────────────┘ │   │
@@ -46,11 +46,10 @@ Lexis follows the standard Electron two-process architecture with strict securit
 │  └─────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────┘
 
-External Services (internet required):
-  AnkiConnect    → http://localhost:8765  (Anki running locally)
-  Forvo API      → https://apifree.forvo.com
-  Anthropic API  → https://api.anthropic.com
-  Wiktionary API → https://en.wiktionary.org/api
+External Services (optional, internet required):
+  Forvo API      → pronunciation audio when configured
+  Anthropic API  → AI explanations/translations when selected
+  OpenAI API     → AI explanations/translations when selected
 ```
 
 ---
@@ -79,15 +78,15 @@ class DatabaseService {
   insertSentences(sentences: SentenceInsert[]): void
   getSentencesBySourceId(sourceId: number): Sentence[]
   
-  // Mined words
+  // Mined words + local SRS cards
   insertMinedWord(word: MinedWordInsert): MinedWord
-  getMinedWords(filter?: MinedWordFilter): MinedWord[]
-  isWordMined(word: string, deckName: string): boolean
-  
-  // Card queue
-  insertCard(card: CardInsert): Card
-  getPendingCards(): Card[]
-  markCardSynced(cardId: number, ankiNoteId: number): void
+  getMinedWords(): MinedWord[]
+  createDeck(name: string, description?: string): Deck
+  getDecks(): Deck[]
+  insertCard(draft: DraftCard): Card
+  getDueCards(deckId: number, limit?: number): Card[]
+  updateCardSRS(id: number, result: SRSResult): void
+  logReview(entry: ReviewLogInsert): void
   
   // Stats
   getMinedCountByDay(days: number): DayStat[]
@@ -172,54 +171,33 @@ WHERE simplified = ? OR traditional = ?
 LIMIT 10;
 ```
 
-### 2.3 `anki.ts` — AnkiConnect Service
+### 2.3 `srs.ts` — Local Scheduling Engine
 
-**Responsibility:** HTTP client for AnkiConnect REST API at `localhost:8765`.
+**Responsibility:** Pure SM-2 scheduling calculation for local cards.
 
 ```typescript
-class AnkiService {
-  private baseUrl = 'http://localhost:8765';
-  private version = 6;
-  
-  async checkConnection(): Promise<boolean>
-  async getDeckNames(): Promise<string[]>
-  async getModelNames(): Promise<string[]>
-  async addNote(note: AnkiNote): Promise<number>  // returns noteId
-  async addNotes(notes: AnkiNote[]): Promise<number[]>
-  async findNotes(query: string): Promise<number[]>
-  async getNoteInfo(noteIds: number[]): Promise<AnkiNoteInfo[]>
-  async storeMediaFile(filename: string, data: string): Promise<void>
-  
-  // Internal: POST wrapper
-  private invoke<T>(action: string, params: object): Promise<T>
+export interface SRSResult {
+  interval: number
+  easeFactor: number
+  reps: number
+  lapses: number
+  cardState: CardState
+  dueDate: string
 }
 
-interface AnkiNote {
-  deckName: string;
-  modelName: string;  // "Basic" | "Cloze" | custom
-  fields: Record<string, string>;
-  tags: string[];
-  audio?: Array<{
-    url?: string;
-    data?: string;  // base64
-    filename: string;
-    fields: string[];  // which fields to attach audio to
-  }>;
-}
+export function calculateNextReview(card: Card, rating: ReviewRating): SRSResult
 ```
 
-**Retry & Queue Logic:**
-- AnkiConnect call fails → card saved to `cards_queue` with `synced = false`
-- Background timer every 30 seconds: check connection → if up, drain queue
-- Max queue size: 500 cards (warn user if exceeded)
+The IPC handler for `cards:review` loads the card, calls `calculateNextReview`,
+updates the card scheduling fields, and writes an immutable `review_log` row.
 
 ### 2.4 `ai.ts` — AI Service
 
-**Responsibility:** Anthropic API calls for grammar explanation and translation.
+**Responsibility:** AI provider calls for grammar explanation, context translation, and examples.
 
 ```typescript
 class AIService {
-  private client: Anthropic;
+  private provider: 'anthropic' | 'openai';
   
   async explainGrammar(
     sentence: string, 
@@ -238,7 +216,8 @@ class AIService {
     count: number
   ): AsyncIterable<string>  // streaming
   
-  setApiKey(key: string): void
+  initialize(provider: AIProvider, anthropicKey: string, openAIKey: string): void
+  testKey(key: string, provider: AIProvider): Promise<boolean>
   hasApiKey(): boolean
 }
 ```
@@ -274,8 +253,8 @@ class AudioService {
 }
 
 interface AudioResult {
-  filePath: string;   // local cached file path
-  source: 'forvo' | 'tts';
+  filename: string;   // served through lexis-audio://
+  source: 'forvo' | 'tts' | 'cache';
 }
 ```
 
@@ -349,13 +328,19 @@ App
 │   │   ├── StreakCard
 │   │   ├── DailyChart
 │   │   └── RecentlyMined
+│   ├── ReviewSession
+│   │   ├── ReviewCard
+│   │   └── RatingButtons
+│   ├── DeckBrowser
+│   │   ├── CardTable
+│   │   └── CardEditModal
 │   └── SettingsView
-│       ├── AnkiSettings
+│       ├── AISettings
 │       ├── APIKeySettings
 │       └── DictionarySettings
 └── StatusBar
-    ├── AnkiStatusIndicator
-    └── QueueBadge
+    ├── SourceStatus
+    └── MiningStatsBadge
 ```
 
 ### 3.2 Zustand Store Design
@@ -391,28 +376,27 @@ interface LookupStore {
 // cardStore.ts
 interface CardStore {
   draftCard: DraftCard | null;
-  deckNames: string[];
-  selectedDeck: string;
+  decks: Deck[];
+  selectedDeckId: number;
   isSending: boolean;
-  pendingCount: number;
   
   openBuilder: (sentence: Sentence, lookupResult: DictEntry) => void;
   updateDraftField: (field: 'front' | 'back', value: string) => void;
   addTag: (tag: string) => void;
   removeTag: (tag: string) => void;
-  sendCard: () => Promise<void>;
+  saveCard: () => Promise<void>;
   cancelCard: () => void;
 }
 
 // settingsStore.ts (persisted via electron-store)
 interface SettingsStore {
+  aiProvider: 'anthropic' | 'openai';
   anthropicApiKey: string;
+  openaiApiKey: string;
   forvoApiKey: string;
-  defaultDeckByLang: Record<Language, string>;
-  defaultTemplate: 'Basic' | 'Cloze';
+  defaultDeckId: number;
   readerFontSize: number;
   theme: 'light' | 'dark' | 'system';
-  ankiConnectUrl: string;
   
   updateSetting: <K extends keyof SettingsStore>(key: K, value: SettingsStore[K]) => void;
 }
@@ -424,7 +408,7 @@ Main layout is a three-column split:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  [←] Lexis                          🔴 Anki offline (3 ⏳)  │  ← TitleBar (32px)
+│  [←] Lexis                          Due today: 12 cards     │  ← TitleBar (32px)
 ├───────────────┬────────────────────────┬────────────────────┤
 │               │                        │                    │
 │  Media        │  Reader Panel          │  Lookup Panel      │
@@ -438,7 +422,7 @@ Main layout is a three-column split:
 │  • book.epub  │                        │                    │
 │               │  (flex: 1)             │  (320px fixed)     │
 ├───────────────┴────────────────────────┴────────────────────┤
-│  ● Anki connected  |  Queue: 0  |  Mined today: 12 words   │  ← StatusBar (28px)
+│  Ready  |  Current source: subtitles  |  Mined today: 12    │  ← StatusBar (28px)
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -465,11 +449,12 @@ See `docs/DATA_MODEL.md` for complete schema, indexes, and migration scripts.
 | `{userData}/lexis.db` | Read-Write, WAL | User data |
 | `{userData}/jmdict.db` | Read-Only | Japanese dictionary |
 | `{userData}/cedict.db` | Read-Only | Chinese dictionary |
+| `{userData}/wordnet.db` | Read-Only | English dictionary |
 
 ### Migration Strategy
 
-- Migrations in `electron/services/migrations/` as numbered SQL files: `001_initial.sql`, `002_add_reading_progress.sql`, etc.
-- `db.ts` runs all pending migrations at startup using a `schema_version` table.
+- Migrations are embedded in `electron/services/db.class.ts` to avoid packaged path issues.
+- `db.class.ts` runs all pending migrations at startup using a `schema_version` table.
 - Never modify a migration that has been shipped — always add a new one.
 
 ---
@@ -484,8 +469,8 @@ The preload script exposes ONLY the following namespaces via `contextBridge.expo
 - `lexis.reader` — load sentences/chapters for display
 - `lexis.dictionary` — lookup words
 - `lexis.audio` — get audio for word
-- `lexis.anki` — connection, decks, add note
-- `lexis.cards` — queue management
+- `lexis.decks` — local deck management
+- `lexis.cards` — local card creation, duplicate checks, review scheduling
 - `lexis.ai` — grammar explain, translate (streaming)
 - `lexis.stats` — mining stats
 - `lexis.settings` — get/set user preferences
@@ -505,7 +490,7 @@ The preload script exposes ONLY the following namespaces via `contextBridge.expo
                connect-src 'none'">
 ```
 
-All external HTTP requests (AnkiConnect, Forvo, Anthropic) happen in the main process — the renderer never makes direct HTTP calls.
+All external HTTP requests (Forvo, Anthropic, OpenAI) happen in the main process — the renderer never makes direct HTTP calls.
 
 ---
 
@@ -552,12 +537,11 @@ nsis:
 
 ### Dictionary Build Script (`scripts/build-dict.ts`)
 
-Run once before packaging. Downloads JMdict XML and CEDICT, converts to SQLite FTS5 databases, saves to `assets/dicts/`.
+Run once before packaging. Downloads JMdict XML, CEDICT, and WordNet, converts them to SQLite databases, and saves them to `assets/dicts/`.
 
 ```bash
 npm run build:dicts
-# Downloads ~50MB, builds ~100MB SQLite files
-# Output: assets/dicts/jmdict.db (~80MB), assets/dicts/cedict.db (~25MB)
+# Output: assets/dicts/jmdict.db, cedict.db, wordnet.db
 ```
 
 ---
@@ -574,10 +558,10 @@ npm run build:dicts
 - Show inline error states (not modals) for recoverable errors
 - Show full-screen error + "Reload app" button for unrecoverable errors
 
-### AnkiConnect Errors
-- Network error (Anki not running): queue card, show status
-- API error (deck not found, etc.): show specific message to user
-- Never silently discard a card
+### Local SRS/Card Errors
+- Missing deck/card: return a clear IPC error and show an inline user-facing message.
+- Duplicate card: warn before creation, but allow the user to continue when appropriate.
+- Review update failure: leave the existing card unchanged and do not write a partial review log.
 
 ---
 

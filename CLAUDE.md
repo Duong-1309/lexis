@@ -4,7 +4,7 @@ This is the primary instruction file for Claude Code. Read this entire file befo
 
 ## Project Overview
 
-**Lexis** is a cross-platform desktop application built with Electron that combines Sentence Mining and Anki flashcard creation into a single workflow. Users read foreign language content (subtitles, ebooks, web articles), highlight sentences, look up words, and send cards to Anki — all without switching apps.
+**Lexis** is a cross-platform desktop application built with Electron that combines sentence mining, dictionary lookup, local flashcard creation, and Anki-style SRS review into a single workflow. Users read foreign language content (subtitles, ebooks, web articles), highlight sentences, look up words, create cards, and review them inside Lexis — all without switching apps.
 
 ## Tech Stack (Do Not Deviate)
 
@@ -39,7 +39,7 @@ lexis/
 │   └── services/
 │       ├── db.ts                ← SQLite singleton + migrations
 │       ├── dictionary.ts        ← Lookup engine + cache
-│       ├── anki.ts              ← AnkiConnect HTTP client
+│       ├── srs.ts               ← SM-2 scheduling engine
 │       ├── ai.ts                ← Anthropic SDK wrapper
 │       ├── audio.ts             ← Forvo + TTS audio
 │       └── parsers/
@@ -68,7 +68,7 @@ lexis/
 │   │   │   └── StreakCard.tsx
 │   │   └── shared/
 │   │       ├── StatusBar.tsx
-│   │       └── AnkiStatusIndicator.tsx
+│   │       └── StatusBar.tsx
 │   ├── store/
 │   │   ├── readerStore.ts
 │   │   ├── lookupStore.ts
@@ -76,7 +76,6 @@ lexis/
 │   │   └── settingsStore.ts
 │   ├── hooks/
 │   │   ├── useWordSelection.ts
-│   │   ├── useAnkiStatus.ts
 │   │   └── useHotkeys.ts
 │   └── types/
 │       └── index.ts             ← All shared TypeScript types
@@ -96,7 +95,7 @@ lexis/
 - The renderer process (React) MUST NEVER call Node.js APIs directly.
 - ALL Node.js/native operations go through `electron/preload.ts` via `contextBridge.exposeInMainWorld`.
 - The preload file exposes a `window.lexis` API object — see `docs/API_CONTRACTS.md` for the full interface.
-- Main process handles: file I/O, SQLite, HTTP requests (AnkiConnect, Forvo, Anthropic), audio file management.
+- Main process handles: file I/O, SQLite, HTTP requests (Forvo, Anthropic/OpenAI), audio file management, and SRS persistence.
 - Renderer handles: all UI state, user interactions, display logic.
 
 ### State Management Rules
@@ -166,10 +165,10 @@ Implement features in this exact order. Do NOT skip ahead or implement out of or
 
 1. **Sprint 1**: Project scaffolding, DB setup, SRT parser, basic Reader UI
 2. **Sprint 2**: Dictionary engine (JMdict + CEDICT), LookupPanel, audio
-3. **Sprint 3**: AnkiConnect service, CardBuilder, hotkeys
-4. **Sprint 4**: EPUB reader, web article import
-5. **Sprint 5**: AI features (Claude grammar explain, context translate)
-6. **Sprint 6**: Stats dashboard, settings, packaging, polish
+3. **Sprint 3**: Built-in SRS decks/cards, CardBuilder, hotkeys
+4. **Sprint 4**: Review session and deck picker
+5. **Sprint 5**: AI features and EPUB reader
+6. **Sprint 6**: Deck browser, stats dashboard, settings, packaging, polish
 
 See `docs/IMPLEMENTATION_PLAN.md` for detailed task breakdown per sprint.
 
@@ -180,11 +179,11 @@ See `docs/IMPLEMENTATION_PLAN.md` for detailed task breakdown per sprint.
 - Every service function in `electron/services/` must have a corresponding unit test in `__tests__/`.
 - Use `// TODO(sprint-N):` comments for features planned in later sprints to avoid scope creep.
 - Prefer `async/await` over promise chains. Never use callbacks.
-- Name IPC channels as `service:action` (e.g., `dictionary:lookup`, `anki:addNote`).
+- Name IPC channels as `service:action` (e.g., `dictionary:lookup`, `cards:create`).
 
 ## Known Constraints
 
 - JMdict and CEDICT dictionary files are NOT in the git repo. Run `npm run build:dicts` to download and build them.
-- AnkiConnect requires Anki to be running on the user's machine with the AnkiConnect add-on installed (add-on code: 2055492159). The app must handle the case where Anki is not running gracefully.
+- Lexis uses built-in decks/cards with SM-2 scheduling. There is no required AnkiConnect dependency in the v2 direction.
 - EPUB DRM files will NOT parse. Display a clear error message — do not attempt to strip DRM.
 - Audio files from Forvo are cached in `{userData}/audio-cache/`. This directory is NOT gitignored (it doesn't exist in the repo, it's created at runtime).
