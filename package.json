@@ -1,0 +1,81 @@
+{
+  "name": "lexis",
+  "version": "1.0.0",
+  "description": "Sentence mining and Anki flashcard creation desktop app",
+  "main": "out/main/main.js",
+  "scripts": {
+    "dev": "env -u ELECTRON_RUN_AS_NODE electron-vite dev",
+    "postinstall": "electron-rebuild -f -w better-sqlite3",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "dist": "npm run build && electron-builder",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:linux": "npm run build && electron-builder --linux",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "test:e2e": "playwright test",
+    "build:dicts": "tsx scripts/build-dict.ts",
+    "lint": "eslint . --ext ts,tsx"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.24.0",
+    "@mozilla/readability": "^0.5.0",
+    "better-sqlite3": "^9.4.0",
+    "electron-log": "^5.1.0",
+    "electron-store": "^8.2.0",
+    "electron-updater": "^6.1.0",
+    "electron-window-state": "^5.0.3",
+    "epubjs": "^0.3.93",
+    "jsdom": "^24.0.0",
+    "kuromoji": "^0.1.2",
+    "openai": "^6.42.0",
+    "recharts": "^2.12.0",
+    "zustand": "^4.5.0"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.0.4",
+    "@playwright/test": "^1.44.0",
+    "@types/better-sqlite3": "^7.6.10",
+    "@types/jsdom": "^21.1.6",
+    "@types/kuromoji": "^0.1.3",
+    "@types/node": "^22.19.21",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.2.0",
+    "@vitest/ui": "^1.6.0",
+    "autoprefixer": "^10.4.19",
+    "electron": "^30.0.0",
+    "electron-builder": "^24.13.0",
+    "electron-vite": "^2.3.0",
+    "fast-xml-parser": "^4.5.6",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.0",
+    "vite": "^5.2.0",
+    "vitest": "^1.6.0"
+  },
+  "build": {
+    "extends": null,
+    "files": [
+      "dist/**",
+      "dist-electron/**",
+      "!**/__tests__/**",
+      "!**/*.test.*",
+      "!docs/**",
+      "!scripts/**"
+    ],
+    "extraResources": [
+      {
+        "from": "assets/dicts/",
+        "to": "dicts/",
+        "filter": [
+          "*.db"
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,21 @@
+[Script Info]
+Title: Sample ASS Subtitle
+ScriptType: v4.00+
+Collisions: Normal
+PlayResX: 1280
+PlayResY: 720
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,36,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,{\an8}これは{\b1}テスト{\b0}のサブタイトルです。
+Dialogue: 0,0:00:04.50,0:00:08.00,Default,,0,0,0,,アニメを見ながら日本語を勉強するのは効果的です。
+Dialogue: 0,0:00:08.50,0:00:12.00,Default,,0,0,0,,{\i1}知らない単語{\i0}があったら、すぐに調べましょう。
+Dialogue: 0,0:00:12.50,0:00:16.00,Default,,0,0,0,,文脈から意味を推測することも大切です。
+Dialogue: 0,0:00:16.50,0:00:20.00,Default,,0,0,0,,毎日繰り返すことで、自然に身につきます。
+Dialogue: 0,0:00:20.50,0:00:24.00,Default,,0,0,0,,聞き取れなかった部分は何度も聞き直してください。
+Dialogue: 0,0:00:24.50,0:00:28.00,Default,,0,0,0,,発音も大事ですが、まず意味を理解しましょう。
+Dialogue: 0,0:00:28.50,0:00:32.00,Default,,0,0,0,,日本語には敬語という特別な表現があります。

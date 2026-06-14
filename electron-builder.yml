@@ -1,0 +1,76 @@
+appId: com.lexis.app
+productName: Lexis
+copyright: Copyright © 2025 Lexis
+
+directories:
+  output: release
+  buildResources: buildResources
+
+files:
+  - dist/**
+  - dist-electron/**
+  - "!**/__tests__/**"
+  - "!**/*.test.*"
+  - "!**/*.spec.*"
+  - "!docs/**"
+  - "!scripts/**"
+  - "!assets/dicts/**"
+
+extraResources:
+  - from: assets/dicts/
+    to: dicts/
+    filter:
+      - "*.db"
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+        - arm64
+  icon: buildResources/icon.ico
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Lexis
+
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  icon: buildResources/icon.icns
+  category: public.app-category.education
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: buildResources/entitlements.mac.plist
+  entitlementsInherit: buildResources/entitlements.mac.plist
+
+dmg:
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+        - arm64
+  icon: buildResources/icons/
+  category: Education
+  synopsis: Sentence mining and Anki flashcard creation
+
+publish:
+  provider: github
+  releaseType: release
