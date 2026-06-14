@@ -34,7 +34,7 @@ export function StatsDashboard({ onClose }: Props) {
   }, [])
 
   return (
-    <div className="fixed inset-0 z-50 bg-gray-950/95 flex flex-col">
+    <div className="h-full bg-gray-950 flex flex-col">
       <div className="flex items-center justify-between px-6 py-4 border-b border-white/5 shrink-0">
         <h2 className="text-base font-semibold text-white">Stats</h2>
         <button
@@ -55,8 +55,8 @@ export function StatsDashboard({ onClose }: Props) {
       )}
 
       {stats && (
-        <div className="flex-1 overflow-y-auto p-6 space-y-5 max-w-4xl mx-auto w-full">
-          <div className="grid grid-cols-4 gap-4">
+        <div className="flex-1 overflow-y-auto p-6 space-y-5 max-w-5xl mx-auto w-full">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
             <StatCard label="Total Mined" value={stats.totalMined.toLocaleString()} />
             <StatCard label="Mined Today" value={stats.minedToday} />
             <StatCard label="Current Streak" value={stats.currentStreak > 0 ? `🔥 ${stats.currentStreak}d` : '0d'} />
@@ -89,7 +89,7 @@ export function StatsDashboard({ onClose }: Props) {
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
             <div className="bg-gray-800 rounded-lg p-4">
               <h3 className="text-sm font-medium text-gray-300 mb-3">By Language</h3>
               {Object.keys(stats.byLanguage).length === 0 ? (

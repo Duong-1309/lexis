@@ -15,6 +15,7 @@ import { useHotkeys } from './hooks/useHotkeys'
 import type { MediaSource, Language, Deck, Card } from './types'
 
 export interface MinedCardEntry { card: Card; deckName: string }
+type ActiveView = 'reader' | 'stats' | 'decks'
 
 function Sidebar({
   sources,
@@ -167,8 +168,7 @@ export default function App() {
   const [showImport, setShowImport] = useState(false)
   const [showDeckPicker, setShowDeckPicker] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
-  const [showStats, setShowStats] = useState(false)
-  const [showDeckBrowser, setShowDeckBrowser] = useState(false)
+  const [activeView, setActiveView] = useState<ActiveView>('reader')
   const [activeReview, setActiveReview] = useState<{ deckId: number; deckName: string } | null>(null)
   const [decks, setDecks] = useState<Deck[]>([])
   const [allCardsMap, setAllCardsMap] = useState<Map<string, MinedCardEntry>>(new Map())
@@ -209,6 +209,7 @@ export default function App() {
   }
 
   const handleSelectSource = async (source: MediaSource) => {
+    setActiveView('reader')
     setSource(source)
     clearLookup()
     clearEPUB()
@@ -277,32 +278,40 @@ export default function App() {
           onImport={() => setShowImport(true)}
           onSelect={handleSelectSource}
           onReview={() => setShowDeckPicker(true)}
-          onStats={() => setShowStats(true)}
-          onDecks={() => setShowDeckBrowser(true)}
+          onStats={() => setActiveView('stats')}
+          onDecks={() => setActiveView('decks')}
           onSettings={() => setShowSettings(true)}
         />
 
-        <main className="flex-1 min-w-0 overflow-hidden">
-          <ReaderPanel
-            sentences={sentences}
-            language={currentSource?.language ?? 'ja'}
-            selectedSentence={selectedSentence}
-            selectedWord={selectedWord}
-            minedWords={minedWords}
-            onSelectSentence={selectSentence}
-            onWordClick={handleWordClick}
-            isEpub={isEpub}
-            chapters={chapters}
-            selectedChapterId={selectedChapterId}
-            chapterHtml={chapterHtml}
-            chapterLoading={chapterLoading}
-            onSelectChapter={handleSelectChapter}
-            onEpubWordSelect={handleEpubWordSelect}
-            allCardsMap={allCardsMap}
-          />
+        <main className="flex-1 min-w-0 overflow-hidden bg-gray-950">
+          {activeView === 'reader' && (
+            <ReaderPanel
+              sentences={sentences}
+              language={currentSource?.language ?? 'ja'}
+              selectedSentence={selectedSentence}
+              selectedWord={selectedWord}
+              minedWords={minedWords}
+              onSelectSentence={selectSentence}
+              onWordClick={handleWordClick}
+              isEpub={isEpub}
+              chapters={chapters}
+              selectedChapterId={selectedChapterId}
+              chapterHtml={chapterHtml}
+              chapterLoading={chapterLoading}
+              onSelectChapter={handleSelectChapter}
+              onEpubWordSelect={handleEpubWordSelect}
+              allCardsMap={allCardsMap}
+            />
+          )}
+          {activeView === 'stats' && (
+            <StatsDashboard onClose={() => setActiveView('reader')} />
+          )}
+          {activeView === 'decks' && (
+            <DeckBrowser onClose={() => { setActiveView('reader'); loadDecks() }} />
+          )}
         </main>
 
-        <LookupPanel />
+        {activeView === 'reader' && <LookupPanel />}
       </div>
 
       <StatusBar />
@@ -324,8 +333,6 @@ export default function App() {
       )}
 
       {showSettings && <SettingsPage onClose={() => setShowSettings(false)} />}
-      {showStats && <StatsDashboard onClose={() => setShowStats(false)} />}
-      {showDeckBrowser && <DeckBrowser onClose={() => setShowDeckBrowser(false)} />}
 
       <CardBuilder onSaved={loadDecks} />
     </div>
