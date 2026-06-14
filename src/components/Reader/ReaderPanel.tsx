@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Sentence, Language, EPUBChapter, Card } from '../../types'
+import { isTypingTarget } from '../../hooks/useHotkeys'
 import { SentenceRow } from './SentenceRow'
 
 export interface MinedCardEntry { card: Card; deckName: string }
@@ -269,8 +270,7 @@ function EPUBReader({
   // Arrow / Page keys navigate
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement).tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      if (isTypingTarget(e.target)) return
       if (e.key === 'ArrowRight' || e.key === 'PageDown') {
         e.preventDefault()
         handleNext()

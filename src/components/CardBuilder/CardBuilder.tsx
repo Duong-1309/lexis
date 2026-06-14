@@ -47,7 +47,7 @@ export function CardBuilder({ onSaved }: CardBuilderProps) {
   }
 
   const handleSave = async () => {
-    if (!draft) return
+    if (!draft || saving || saved) return
     setSaving(true)
     const result = await window.lexis.cards.create(draft)
     setSaving(false)
@@ -59,6 +59,22 @@ export function CardBuilder({ onSaved }: CardBuilderProps) {
     onSaved?.()
     setTimeout(() => closeBuilder(), 800)
   }
+
+  useEffect(() => {
+    if (!open) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault()
+        handleSave()
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        closeBuilder()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [open, draft, saving, saved])
 
   if (!open || !draft) return null
 
@@ -192,6 +208,7 @@ export function CardBuilder({ onSaved }: CardBuilderProps) {
             }`}
           >
             {saved ? 'Saved!' : saving ? 'Saving...' : 'Add to Deck'}
+            {!saving && !saved && <span className="ml-2 text-xs opacity-60">Ctrl/⌘ Enter</span>}
           </button>
         </div>
       </div>

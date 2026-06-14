@@ -173,7 +173,14 @@ export default function App() {
   const [decks, setDecks] = useState<Deck[]>([])
   const [allCardsMap, setAllCardsMap] = useState<Map<string, MinedCardEntry>>(new Map())
 
-  useHotkeys()
+  useHotkeys({
+    enabled:
+      activeView === 'reader' &&
+      !activeReview &&
+      !showImport &&
+      !showDeckPicker &&
+      !showSettings,
+  })
 
   useEffect(() => {
     loadSources()

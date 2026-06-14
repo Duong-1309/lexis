@@ -2,27 +2,36 @@ import { useEffect } from 'react'
 import { useLookupStore } from '../store/lookupStore'
 import { useCardStore, buildDraft } from '../store/cardStore'
 
-export function useHotkeys() {
+export function isTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  const tag = target.tagName
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable
+}
+
+interface HotkeyOptions {
+  enabled?: boolean
+}
+
+export function useHotkeys({ enabled = true }: HotkeyOptions = {}) {
   const lookupStore = useLookupStore()
   const { open: cardBuilderOpen, openBuilder, closeBuilder } = useCardStore()
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement).tagName
-      const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
-
       if (e.key === 'Escape') {
         if (cardBuilderOpen) {
+          e.preventDefault()
           closeBuilder()
         }
         return
       }
 
-      if (isInput) return
+      if (!enabled || isTypingTarget(e.target)) return
 
-      if (e.key === 'a' || e.key === 'A') {
+      if (e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === 'a') {
+        e.preventDefault()
         const { word, language, results } = lookupStore
-        if (!word || !language || results.length === 0) return
+        if (cardBuilderOpen || !word || !language || results.length === 0) return
 
         const firstSense = results[0]?.senses[0]
         const definition = firstSense?.definitions.slice(0, 2).join('; ') ?? ''
@@ -42,6 +51,7 @@ export function useHotkeys() {
       if (e.key === ' ') {
         const { word, language, results } = lookupStore
         if (!word || !language) return
+        e.preventDefault()
         const reading = results[0]?.readings[0]?.value
         window.lexis.audio.getAudioPath(word, language, reading)
         return
@@ -50,5 +60,5 @@ export function useHotkeys() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [lookupStore, cardBuilderOpen, openBuilder, closeBuilder])
+  }, [lookupStore, cardBuilderOpen, openBuilder, closeBuilder, enabled])
 }

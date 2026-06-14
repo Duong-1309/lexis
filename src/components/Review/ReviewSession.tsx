@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import type { Card, ReviewRating } from '../../types'
+import { isTypingTarget } from '../../hooks/useHotkeys'
 
 type Phase = 'front' | 'back' | 'done'
 
@@ -95,8 +96,7 @@ export function ReviewSession({ deckId, deckName, onEnd }: ReviewSessionProps) {
   // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement).tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      if (isTypingTarget(e.target)) return
 
       if (phase === 'front' && e.key === ' ') {
         e.preventDefault()

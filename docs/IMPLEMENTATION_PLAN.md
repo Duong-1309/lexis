@@ -302,7 +302,7 @@ Create `src/store/cardStore.ts` (Zustand — tracks draft card state).
 Create `src/hooks/useHotkeys.ts`:
 
 ```typescript
-// A — open CardBuilder with current lookup word
+// Shift+A — open CardBuilder with current lookup word
 // Escape — close CardBuilder / clear selection
 // Space — play audio for current lookup result
 ```

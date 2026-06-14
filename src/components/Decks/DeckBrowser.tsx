@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Card, CardState, Deck, DraftCard, Language, CardUpdate } from '../../types'
+import { isTypingTarget } from '../../hooks/useHotkeys'
 import { CardEditModal } from './CardEditModal'
 
 interface Props {
@@ -178,6 +179,7 @@ export function DeckBrowser({ onClose }: Props) {
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialog | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const searchInputRef = useRef<HTMLInputElement | null>(null)
 
   const selectedDeck = useMemo(
     () => decks.find((deck) => deck.id === selectedDeckId) ?? null,
@@ -215,6 +217,48 @@ export function DeckBrowser({ onClose }: Props) {
     }
     loadCards(selectedDeckId)
   }, [selectedDeckId])
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (editCard || showCreateCard || deckNameDialog || confirmDialog) return
+
+      if (e.key === 'Escape' && e.target === searchInputRef.current) {
+        e.preventDefault()
+        setSearch('')
+        searchInputRef.current?.blur()
+        return
+      }
+
+      if (e.key === '/' && !isTypingTarget(e.target)) {
+        e.preventDefault()
+        searchInputRef.current?.focus()
+        return
+      }
+
+      if (e.key.toLowerCase() === 'n' && !e.metaKey && !e.ctrlKey && !e.altKey && !isTypingTarget(e.target)) {
+        e.preventDefault()
+        if (decks.length > 0) setShowCreateCard(true)
+        return
+      }
+
+      if (e.key === 'Escape' && !isTypingTarget(e.target)) {
+        if (selected.size > 0) {
+          setSelected(new Set())
+          return
+        }
+        if (search || stateFilter !== 'all' || languageFilter !== 'all') {
+          setSearch('')
+          setStateFilter('all')
+          setLanguageFilter('all')
+          return
+        }
+        onClose()
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [confirmDialog, deckNameDialog, decks.length, editCard, languageFilter, onClose, search, selected.size, showCreateCard, stateFilter])
 
   async function loadDecks(preferredDeckId?: number): Promise<void> {
     const result = await window.lexis.decks.list()
@@ -467,6 +511,7 @@ export function DeckBrowser({ onClose }: Props) {
         <div className="flex-1 flex flex-col min-w-0">
           <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-white/5 shrink-0">
             <input
+              ref={searchInputRef}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search cards..."
@@ -497,7 +542,7 @@ export function DeckBrowser({ onClose }: Props) {
               disabled={decks.length === 0}
               className="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white rounded-md transition-colors"
             >
-              New Card
+              New Card <span className="ml-1 opacity-60">N</span>
             </button>
             <button onClick={handleExport} className="px-3 py-1.5 text-xs bg-gray-700 text-gray-300 hover:bg-gray-600 rounded-md transition-colors">
               Export JSON

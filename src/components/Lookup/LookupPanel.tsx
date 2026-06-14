@@ -261,7 +261,7 @@ export function LookupPanel() {
             onClick={handleAddToDeck}
             className="w-full py-2 text-sm font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
           >
-            + Add to Deck <span className="ml-1 text-xs opacity-60">(A)</span>
+            + Add to Deck <span className="ml-1 text-xs opacity-60">Shift+A</span>
           </button>
         </div>
       )}
