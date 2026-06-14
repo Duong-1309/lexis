@@ -1,0 +1,56 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* EPUB reader — force text selection on (override any EPUB inline styles) */
+.epub-content,
+.epub-content * {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
+/* Yellow word highlight injected by click handler */
+.epub-word-highlight {
+  background: #fde047 !important;
+  color: #111827 !important;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+/* Words already mined (in a deck) — green underline */
+.epub-mined-word {
+  border-bottom: 2px solid #86efac; /* green-300 */
+  cursor: pointer;
+}
+.epub-mined-word:hover {
+  background: rgba(134, 239, 172, 0.15);
+  border-radius: 2px;
+}
+
+/* Custom scrollbar for dark theme */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
