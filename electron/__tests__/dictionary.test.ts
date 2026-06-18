@@ -194,6 +194,45 @@ describe('DictionaryService', () => {
     })
   })
 
+  // ─── lookup — WordNet ────────────────────────────────────────────────────
+
+  describe('lookup — WordNet', () => {
+    beforeEach(() => {
+      vi.spyOn(fs, 'existsSync').mockReturnValue(true)
+      service.openDictionary('en', '/fake/wordnet.db')
+    })
+
+    it('normalizes punctuation and quotes FTS fallback queries', () => {
+      mockAll.mockReturnValue([])
+
+      const results = service.lookup('Suddenly, without warning', 'en')
+      const callArgs = mockAll.mock.calls.map((call) => call[0])
+
+      expect(results).toEqual([])
+      expect(callArgs).toContain('suddenly')
+      expect(callArgs).toContain('"suddenly"')
+      expect(callArgs).not.toContain('Suddenly, without warning')
+    })
+
+    it('returns [] for punctuation-only lookup text', () => {
+      const results = service.lookup(',', 'en')
+
+      expect(results).toEqual([])
+      expect(mockPrepare).not.toHaveBeenCalled()
+    })
+
+    it('does not run fuzzy fallback for contractions', () => {
+      mockAll.mockReturnValue([])
+
+      const results = service.lookup("You're", 'en')
+      const callArgs = mockAll.mock.calls.map((call) => call[0])
+
+      expect(results).toEqual([])
+      expect(callArgs).toContain('you')
+      expect(callArgs).not.toContain('"you"')
+    })
+  })
+
   // ─── LRU cache ───────────────────────────────────────────────────────────
 
   describe('LRU cache', () => {

@@ -2,20 +2,59 @@ import { useEffect, useState } from 'react'
 import { ReaderPanel } from './components/Reader/ReaderPanel'
 import { LookupPanel } from './components/Lookup/LookupPanel'
 import { CardBuilder } from './components/CardBuilder/CardBuilder'
+import { PatternBuilder } from './components/PatternBuilder/PatternBuilder'
 import { DeckPicker } from './components/Review/DeckPicker'
 import { ReviewSession } from './components/Review/ReviewSession'
 import { ImportModal } from './components/ImportModal'
 import { SettingsPage } from './components/Settings/SettingsPage'
 import { StatsDashboard } from './components/Stats/StatsDashboard'
 import { DeckBrowser } from './components/Decks/DeckBrowser'
+import { PatternDrillPanel } from './components/Drills/PatternDrillPanel'
 import { StatusBar } from './components/shared/StatusBar'
 import { useReaderStore } from './store/readerStore'
 import { useLookupStore } from './store/lookupStore'
+import { usePatternStore } from './store/patternStore'
 import { useHotkeys } from './hooks/useHotkeys'
-import type { MediaSource, Language, Deck, Card } from './types'
+import { buildPatternDraftFromSentence } from './utils/patternMining'
+import { debugLog } from './utils/debugLog'
+import type { MediaSource, Language, Deck, Card, Sentence, Pattern } from './types'
 
 export interface MinedCardEntry { card: Card; deckName: string }
-type ActiveView = 'reader' | 'stats' | 'decks'
+type ActiveView = 'reader' | 'stats' | 'decks' | 'drills'
+
+function normalizeSelectionText(value: string): string {
+  return value
+    .normalize('NFKC')
+    .toLocaleLowerCase()
+    .replace(/[\p{P}\p{S}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function isSentenceOrPhraseSelection(text: string, sentence?: string): boolean {
+  const trimmed = text.trim()
+  if (!trimmed) return false
+
+  const normalized = normalizeSelectionText(trimmed)
+  if (sentence && normalized === normalizeSelectionText(sentence)) return true
+  if (/\s/.test(trimmed)) return true
+  if (/[.!?。！？｡؟…、,;:，；：]/u.test(trimmed)) return true
+
+  const chars = Array.from(trimmed)
+  const hasCjkOrHangul = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(trimmed)
+  if (hasCjkOrHangul && chars.length >= 6) return true
+
+  return false
+}
+
+function isReaderWordHighlightCard(card: Card): boolean {
+  const word = card.word?.trim()
+  if (!word) return false
+  if (card.tags.includes('drill') || card.tags.includes('pattern')) return false
+  if (/\s/.test(word)) return false
+  if (/[.!?。！？｡؟…、,;:，；：]/u.test(word)) return false
+  return true
+}
 
 function Sidebar({
   sources,
@@ -26,6 +65,7 @@ function Sidebar({
   onReview,
   onStats,
   onDecks,
+  onDrills,
   onSettings,
 }: {
   sources: MediaSource[]
@@ -36,6 +76,7 @@ function Sidebar({
   onReview: () => void
   onStats: () => void
   onDecks: () => void
+  onDrills: () => void
   onSettings: () => void
 }) {
   return (
@@ -123,6 +164,16 @@ function Sidebar({
           Browse Decks
         </button>
         <button
+          onClick={onDrills}
+          className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-500 hover:text-gray-300 hover:bg-white/5 rounded-md transition-colors"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h8M8 12h5m-8 8h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+          Drills
+        </button>
+        <button
           onClick={onSettings}
           className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-500 hover:text-gray-300 hover:bg-white/5 rounded-md transition-colors"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
@@ -162,7 +213,9 @@ export default function App() {
     clearEPUB,
   } = useReaderStore()
 
-  const { lookup, clear: clearLookup } = useLookupStore()
+  const { lookup, setSelection, clear: clearLookup } = useLookupStore()
+  const patternBuilderOpen = usePatternStore((state) => state.open)
+  const openPatternBuilder = usePatternStore((state) => state.openBuilder)
 
   const [sources, setSources] = useState<MediaSource[]>([])
   const [showImport, setShowImport] = useState(false)
@@ -172,6 +225,8 @@ export default function App() {
   const [activeReview, setActiveReview] = useState<{ deckId: number; deckName: string } | null>(null)
   const [decks, setDecks] = useState<Deck[]>([])
   const [allCardsMap, setAllCardsMap] = useState<Map<string, MinedCardEntry>>(new Map())
+  const [minedPatterns, setMinedPatterns] = useState<Pattern[]>([])
+  const [patternRefreshKey, setPatternRefreshKey] = useState(0)
 
   useHotkeys({
     enabled:
@@ -179,13 +234,18 @@ export default function App() {
       !activeReview &&
       !showImport &&
       !showDeckPicker &&
-      !showSettings,
+      !showSettings &&
+      !patternBuilderOpen,
   })
 
   useEffect(() => {
     loadSources()
     loadDecks()
   }, [])
+
+  useEffect(() => {
+    loadMinedPatterns()
+  }, [currentSource?.language, patternRefreshKey])
 
   const loadSources = async () => {
     const result = await window.lexis.media.list()
@@ -202,11 +262,21 @@ export default function App() {
       const cardsRes = await window.lexis.cards.all(deck.id)
       if (!cardsRes.data) continue
       for (const card of cardsRes.data) {
-        if (card.word) map.set(card.word.toLowerCase(), { card, deckName: deck.name })
+        if (isReaderWordHighlightCard(card)) {
+          map.set(card.word!.toLowerCase(), { card, deckName: deck.name })
+        }
       }
     }
     setAllCardsMap(map)
     console.log('[Lexis] allCardsMap ready:', map.size, 'words', [...map.keys()].slice(0, 5))
+  }
+
+  const loadMinedPatterns = async () => {
+    const result = await window.lexis.patterns.list(
+      currentSource?.language ? { language: currentSource.language } : undefined,
+    )
+    if (!result.data) return
+    setMinedPatterns(result.data)
   }
 
   const handleImported = async (source: MediaSource) => {
@@ -246,14 +316,51 @@ export default function App() {
 
   const handleWordClick = (surface: string, dictionaryForm: string) => {
     const lang: Language = currentSource?.language ?? 'ja'
+    const isPhraseSelection = isSentenceOrPhraseSelection(surface, selectedSentence?.content)
+    debugLog('app', 'lookup-request', {
+      surface,
+      dictionaryForm,
+      lang,
+      isPhraseSelection,
+      sourceId: currentSource?.id,
+      sourceType: currentSource?.type,
+      selectedSentence: selectedSentence?.content,
+    })
     selectWord(surface)
+    if (isPhraseSelection) {
+      setSelection(surface, lang)
+      return
+    }
     lookup(dictionaryForm, lang)
   }
 
   const handleEpubWordSelect = (word: string) => {
     const lang: Language = currentSource?.language ?? 'ja'
-    selectWord(word)
-    lookup(word, lang)
+    debugLog('app', 'epub-lookup-request', {
+      word,
+      lang,
+      sourceId: currentSource?.id,
+      selectedChapterId,
+    })
+    handleWordClick(word, word)
+  }
+
+  const handleMinePattern = (sentence: Sentence) => {
+    const lang: Language = currentSource?.language ?? 'ja'
+    debugLog('app', 'reader-mine-pattern', {
+      sentence: sentence.content,
+      selectedWord,
+      lang,
+      sourceId: currentSource?.id,
+    })
+    openPatternBuilder(
+      buildPatternDraftFromSentence({
+        sentence,
+        language: lang,
+        target: selectedWord,
+        sourceId: currentSource?.id,
+      }),
+    )
   }
 
   const handleStartReview = (deckId: number) => {
@@ -265,6 +372,10 @@ export default function App() {
   const handleEndReview = () => {
     setActiveReview(null)
     loadDecks()
+  }
+
+  const handlePatternSaved = () => {
+    setPatternRefreshKey((value) => value + 1)
   }
 
   const totalDue = decks.reduce((sum, d) => sum + (d.dueCount ?? 0), 0)
@@ -287,6 +398,7 @@ export default function App() {
           onReview={() => setShowDeckPicker(true)}
           onStats={() => setActiveView('stats')}
           onDecks={() => setActiveView('decks')}
+          onDrills={() => setActiveView('drills')}
           onSettings={() => setShowSettings(true)}
         />
 
@@ -300,6 +412,7 @@ export default function App() {
               minedWords={minedWords}
               onSelectSentence={selectSentence}
               onWordClick={handleWordClick}
+              onMinePattern={handleMinePattern}
               isEpub={isEpub}
               chapters={chapters}
               selectedChapterId={selectedChapterId}
@@ -308,6 +421,7 @@ export default function App() {
               onSelectChapter={handleSelectChapter}
               onEpubWordSelect={handleEpubWordSelect}
               allCardsMap={allCardsMap}
+              minedPatterns={minedPatterns}
             />
           )}
           {activeView === 'stats' && (
@@ -315,6 +429,16 @@ export default function App() {
           )}
           {activeView === 'decks' && (
             <DeckBrowser onClose={() => { setActiveView('reader'); loadDecks() }} />
+          )}
+          {activeView === 'drills' && (
+            <PatternDrillPanel
+              decks={decks}
+              refreshKey={patternRefreshKey}
+              onReviewDeck={(deckId) => {
+                loadDecks()
+                handleStartReview(deckId)
+              }}
+            />
           )}
         </main>
 
@@ -342,6 +466,7 @@ export default function App() {
       {showSettings && <SettingsPage onClose={() => setShowSettings(false)} />}
 
       <CardBuilder onSaved={loadDecks} />
+      <PatternBuilder decks={decks} onSaved={handlePatternSaved} />
     </div>
   )
 }

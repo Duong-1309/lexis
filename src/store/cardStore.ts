@@ -16,6 +16,38 @@ interface CardBuilderState {
 
 const DEFAULT_DECK_ID = 1
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, ' ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .trim()
+}
+
+function highlightInSentence(sentence: string, word: string): string {
+  const index = sentence.toLocaleLowerCase().indexOf(word.toLocaleLowerCase())
+  if (index === -1) return escapeHtml(sentence)
+
+  const before = sentence.slice(0, index)
+  const match = sentence.slice(index, index + word.length)
+  const after = sentence.slice(index + word.length)
+
+  return `${escapeHtml(before)}<strong>${escapeHtml(match)}</strong>${escapeHtml(after)}`
+}
+
 export const useCardStore = create<CardBuilderState>((set) => ({
   open: false,
   draft: null,
@@ -39,20 +71,44 @@ export function buildDraft(opts: {
   reading?: string
   definition: string
   language: Language
+  nativeDefinition?: string
+  partOfSpeech?: string
+  levelInfo?: { jlpt?: number; hsk?: number }
+  audioWord?: string
   sourceSentence?: string
+  sourceHighlight?: string
   sourceId?: number
   deckId?: number
 }): DraftCard {
-  const front = opts.reading ? `${opts.word}【${opts.reading}】` : opts.word
-
-  let back = opts.definition
-  if (opts.sourceSentence) {
-    const highlighted = opts.sourceSentence.replace(
-      opts.word,
-      `<strong>${opts.word}</strong>`,
-    )
-    back = `${opts.definition}<br><br><em>${highlighted}</em>`
+  // Front: word【reading】 [N3] [n]
+  let front = opts.reading
+    ? `${escapeHtml(opts.word)}【${escapeHtml(opts.reading)}】`
+    : escapeHtml(opts.word)
+  if (opts.levelInfo?.jlpt) {
+    front += ` <span style="font-size:0.7em;background:#1d4ed8;color:#fff;padding:1px 5px;border-radius:3px">N${opts.levelInfo.jlpt}</span>`
   }
+  if (opts.levelInfo?.hsk) {
+    front += ` <span style="font-size:0.7em;background:#15803d;color:#fff;padding:1px 5px;border-radius:3px">HSK${opts.levelInfo.hsk}</span>`
+  }
+  if (opts.partOfSpeech) {
+    front += ` <span style="font-size:0.7em;color:#9ca3af">[${escapeHtml(opts.partOfSpeech)}]</span>`
+  }
+
+  // Back: VI def (primary) + EN def (secondary) + source sentence
+  const parts: string[] = []
+  if (opts.nativeDefinition) {
+    parts.push(`<strong style="color:#93c5fd">${escapeHtml(opts.nativeDefinition)}</strong>`)
+  }
+  const cleanDef = stripHtml(opts.definition)
+  if (cleanDef) {
+    const style = opts.nativeDefinition ? ' style="color:#9ca3af;font-size:0.875em"' : ''
+    parts.push(`<span${style}>${escapeHtml(cleanDef)}</span>`)
+  }
+  if (opts.sourceSentence) {
+    const highlighted = highlightInSentence(opts.sourceSentence, opts.sourceHighlight ?? opts.word)
+    parts.push(`<em style="color:#6b7280">${highlighted}</em>`)
+  }
+  const back = parts.join('<br><br>')
 
   return {
     deckId: opts.deckId ?? DEFAULT_DECK_ID,
@@ -63,6 +119,10 @@ export function buildDraft(opts: {
     word: opts.word,
     reading: opts.reading,
     language: opts.language,
+    nativeDefinition: opts.nativeDefinition,
+    partOfSpeech: opts.partOfSpeech,
+    levelInfo: opts.levelInfo,
+    audioWord: opts.audioWord,
     sourceSentence: opts.sourceSentence,
     sourceId: opts.sourceId,
   }

@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Sentence, Language, EPUBChapter, Card } from '../../types'
+import type { Sentence, Language, EPUBChapter, Card, Pattern } from '../../types'
 import { isTypingTarget } from '../../hooks/useHotkeys'
 import { SentenceRow } from './SentenceRow'
+import { formatDueDistance } from '../../utils/time'
+import { debugLog } from '../../utils/debugLog'
 
 export interface MinedCardEntry { card: Card; deckName: string }
+export interface MinedPatternEntry { pattern: Pattern }
 
 interface ReaderPanelProps {
   sentences: Sentence[]
@@ -13,6 +16,7 @@ interface ReaderPanelProps {
   minedWords: Set<string>
   onSelectSentence: (sentence: Sentence) => void
   onWordClick: (word: string, dictionaryForm: string) => void
+  onMinePattern?: (sentence: Sentence) => void
   isEpub?: boolean
   chapters?: EPUBChapter[]
   selectedChapterId?: string | null
@@ -21,43 +25,81 @@ interface ReaderPanelProps {
   onSelectChapter?: (chapterId: string) => void
   onEpubWordSelect?: (word: string) => void
   allCardsMap?: Map<string, MinedCardEntry>
-}
-
-interface WordResult { word: string; start: number; end: number }
-
-function extractWordAt(text: string, offset: number): WordResult | null {
-  if (!text || offset > text.length) return null
-  const safeOffset = Math.min(offset, text.length - 1)
-  const ch = text[safeOffset]
-  if (!ch || /\s/.test(ch)) return null
-
-  // CJK unified ideographs, hiragana, katakana, hangul, fullwidth chars
-  const isCJK = (c: string) => {
-    const code = c.charCodeAt(0)
-    return (code >= 0x3000 && code <= 0x9fff) || (code >= 0xac00 && code <= 0xd7af)
-  }
-
-  if (isCJK(ch)) {
-    // Expand to adjacent CJK run; cap at 10 chars for practical lookup
-    let s = safeOffset
-    while (s > 0 && isCJK(text[s - 1])) s--
-    let e = safeOffset + 1
-    while (e < text.length && isCJK(text[e])) e++
-    const word = text.slice(s, Math.min(e, s + 10))
-    return { word, start: s, end: s + word.length }
-  }
-
-  // Latin / other: alphanumeric + apostrophe/hyphen run
-  const isW = (c: string) => /[a-zA-Z0-9À-ɏ'-]/.test(c)
-  let s = safeOffset
-  while (s > 0 && isW(text[s - 1])) s--
-  let e = safeOffset
-  while (e < text.length && isW(text[e])) e++
-  if (s === e) return null
-  return { word: text.slice(s, e), start: s, end: e }
+  minedPatterns?: Pattern[]
 }
 
 const CJK_RE = /[　-鿿가-힯]/
+const MAX_SELECTION_LENGTH = 120
+
+function normalizeHighlightText(value: string): string {
+  return value
+    .normalize('NFKC')
+    .toLocaleLowerCase()
+    .replace(/[\p{P}\p{S}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function buildNormalizedIndex(value: string): { text: string; map: number[] } {
+  const chars: string[] = []
+  const map: number[] = []
+  let pendingSpaceIndex: number | null = null
+
+  const flushSpace = () => {
+    if (pendingSpaceIndex === null) return
+    if (chars.length > 0 && chars[chars.length - 1] !== ' ') {
+      chars.push(' ')
+      map.push(pendingSpaceIndex)
+    }
+    pendingSpaceIndex = null
+  }
+
+  for (let i = 0; i < value.length; i += 1) {
+    const normalized = value[i].normalize('NFKC').toLocaleLowerCase()
+    if (/[\p{P}\p{S}\s]/u.test(normalized)) {
+      pendingSpaceIndex = pendingSpaceIndex ?? i
+      continue
+    }
+
+    flushSpace()
+    for (const ch of normalized) {
+      chars.push(ch)
+      map.push(i)
+    }
+  }
+
+  let start = 0
+  while (chars[start] === ' ') start += 1
+  let end = chars.length
+  while (end > start && chars[end - 1] === ' ') end -= 1
+
+  return {
+    text: chars.slice(start, end).join(''),
+    map: map.slice(start, end),
+  }
+}
+
+function findNormalizedMatch(text: string, target: string): { index: number; end: number } | null {
+  const normalizedText = buildNormalizedIndex(text)
+  const normalizedTarget = normalizeHighlightText(target)
+  if (!normalizedTarget) return null
+
+  const index = normalizedText.text.indexOf(normalizedTarget)
+  if (index < 0) return null
+
+  const start = normalizedText.map[index]
+  const last = normalizedText.map[index + normalizedTarget.length - 1]
+  if (start === undefined || last === undefined) return null
+  return { index: start, end: last + 1 }
+}
+
+function patternHighlightText(pattern: Pattern): string | null {
+  const example = pattern.exampleSentence?.trim()
+  if (example) return example
+  const text = pattern.patternText.trim()
+  if (!text || text.includes('[') || text.includes(']')) return null
+  return text
+}
 
 function wordPattern(words: Set<string>): RegExp {
   const sorted = [...words].sort((a, b) => b.length - a.length)
@@ -69,19 +111,57 @@ function wordPattern(words: Set<string>): RegExp {
   return new RegExp(`(${parts.join('|')})`, 'gi')
 }
 
-function injectMinedHighlights(html: string, words: Set<string>): string {
-  if (words.size === 0) return html
+function injectMinedHighlights(html: string, words: Set<string>, patterns: Pattern[]): string {
+  if (words.size === 0 && patterns.length === 0) return html
   const container = document.createElement('div')
   container.innerHTML = html
 
-  const pattern = wordPattern(words)
+  const sentenceTexts = [...new Set(patterns.map(patternHighlightText).filter((s): s is string => Boolean(s)))]
+    .sort((a, b) => b.length - a.length)
 
   const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT)
   const textNodes: Text[] = []
   let n: Node | null
   while ((n = walker.nextNode())) textNodes.push(n as Text)
 
-  for (const textNode of textNodes) {
+  if (sentenceTexts.length > 0) {
+    for (const textNode of textNodes) {
+      const text = textNode.textContent ?? ''
+      const matches = sentenceTexts
+        .map((sentence) => {
+          const match = findNormalizedMatch(text, sentence)
+          return match ? { sentence, index: match.index, end: match.end } : null
+        })
+        .filter((match): match is { sentence: string; index: number; end: number } => match !== null)
+        .sort((a, b) => a.index - b.index || (b.end - b.index) - (a.end - a.index))
+      if (matches.length === 0) continue
+
+      const frag = document.createDocumentFragment()
+      let cursor = 0
+      for (const match of matches) {
+        if (match.index < cursor) continue
+        if (match.index > cursor) frag.appendChild(document.createTextNode(text.slice(cursor, match.index)))
+        const sentenceText = text.slice(match.index, match.end)
+        const span = document.createElement('span')
+        span.className = 'epub-mined-sentence'
+        span.dataset.sentence = normalizeHighlightText(sentenceText)
+        span.textContent = sentenceText
+        frag.appendChild(span)
+        cursor = match.end
+      }
+      if (cursor < text.length) frag.appendChild(document.createTextNode(text.slice(cursor)))
+      textNode.parentNode?.replaceChild(frag, textNode)
+    }
+  }
+
+  if (words.size === 0) return container.innerHTML
+  const pattern = wordPattern(words)
+  const wordWalker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT)
+  const wordTextNodes: Text[] = []
+  while ((n = wordWalker.nextNode())) wordTextNodes.push(n as Text)
+
+  for (const textNode of wordTextNodes) {
+    if (textNode.parentElement?.closest('.epub-mined-sentence')) continue
     const text = textNode.textContent ?? ''
     pattern.lastIndex = 0
     if (!pattern.test(text)) continue
@@ -110,10 +190,7 @@ function injectMinedHighlights(html: string, words: Set<string>): string {
 
 function MinedTooltip({ entry, x, y }: { entry: MinedCardEntry; x: number; y: number }) {
   const { card, deckName } = entry
-  const due = new Date(card.dueDate)
-  const nowMs = Date.now()
-  const diffDays = Math.ceil((due.getTime() - nowMs) / 86400000)
-  const dueLabel = diffDays <= 0 ? 'Due now' : diffDays === 1 ? 'Due tomorrow' : `Due in ${diffDays}d`
+  const dueLabel = formatDueDistance(card.dueDate)
 
   // Keep tooltip on screen horizontally
   const left = Math.max(8, Math.min(x - 128, window.innerWidth - 272))
@@ -146,6 +223,39 @@ function MinedTooltip({ entry, x, y }: { entry: MinedCardEntry; x: number; y: nu
   )
 }
 
+function PatternTooltip({ entry, x, y }: { entry: MinedPatternEntry; x: number; y: number }) {
+  const { pattern } = entry
+  const left = Math.max(8, Math.min(x - 144, window.innerWidth - 304))
+
+  return (
+    <div
+      className="fixed z-50 w-72 bg-gray-800 border border-white/10 rounded-xl shadow-2xl p-3 pointer-events-none"
+      style={{ left, top: y, transform: 'translateY(calc(-100% - 8px))' }}
+    >
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-[11px] font-semibold text-blue-300 uppercase tracking-wide">Pattern</span>
+        <span className="text-[11px] text-gray-500">{pattern.language.toUpperCase()}</span>
+      </div>
+      <p className="text-sm font-semibold text-gray-100 line-clamp-2">{pattern.patternText}</p>
+      {pattern.meaningNative && (
+        <p className="text-xs text-blue-200 mt-1.5 line-clamp-2">{pattern.meaningNative}</p>
+      )}
+      {pattern.explanation && (
+        <p className="text-xs text-gray-300 mt-1.5 line-clamp-3 whitespace-pre-line">{pattern.explanation}</p>
+      )}
+      {pattern.tags.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-2 pt-2 border-t border-white/5">
+          {pattern.tags.slice(0, 4).map((tag) => (
+            <span key={tag} className="text-[10px] bg-gray-700 text-gray-400 rounded px-1.5 py-0.5">
+              {tag}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function EPUBReader({
   chapters,
   selectedChapterId,
@@ -155,6 +265,7 @@ function EPUBReader({
   onSelectChapter,
   onEpubWordSelect,
   allCardsMap,
+  minedPatterns,
 }: {
   chapters: EPUBChapter[]
   selectedChapterId: string | null
@@ -164,30 +275,43 @@ function EPUBReader({
   onSelectChapter?: (id: string) => void
   onEpubWordSelect?: (word: string) => void
   allCardsMap?: Map<string, MinedCardEntry>
+  minedPatterns?: Pattern[]
 }) {
   const contentRef = useRef<HTMLDivElement>(null)
   const highlightSpanRef = useRef<HTMLSpanElement | null>(null)
   const [currentPage, setCurrentPage] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
   const [tooltip, setTooltip] = useState<{ entry: MinedCardEntry; x: number; y: number } | null>(null)
+  const [patternTooltip, setPatternTooltip] = useState<{ entry: MinedPatternEntry; x: number; y: number } | null>(null)
+  const minedPatternMap = useMemo(() => {
+    const map = new Map<string, MinedPatternEntry>()
+    for (const pattern of minedPatterns ?? []) {
+      const text = patternHighlightText(pattern)
+      if (text) map.set(normalizeHighlightText(text), { pattern })
+    }
+    return map
+  }, [minedPatterns])
 
   // Inject <span class="epub-mined-word"> around every word that's in a deck
   const processedHtml = useMemo(() => {
     if (!chapterHtml) return null
-    if (!allCardsMap || allCardsMap.size === 0) {
-      console.log('[Lexis] processedHtml: allCardsMap empty, skipping highlight injection')
+    if ((!allCardsMap || allCardsMap.size === 0) && (!minedPatterns || minedPatterns.length === 0)) {
+      console.log('[Lexis] processedHtml: no mined words/sentences, skipping highlight injection')
       return chapterHtml
     }
     try {
-      const words = new Set(allCardsMap.keys())
-      console.log('[Lexis] processedHtml: injecting highlights for', words.size, 'words:', [...words])
-      const result = injectMinedHighlights(chapterHtml, words)
+      const words = new Set(allCardsMap?.keys() ?? [])
+      console.log('[Lexis] processedHtml: injecting highlights', {
+        words: words.size,
+        sentences: minedPatterns?.length ?? 0,
+      })
+      const result = injectMinedHighlights(chapterHtml, words, minedPatterns ?? [])
       return result
     } catch (e) {
       console.error('[Lexis] injectMinedHighlights error:', e)
       return chapterHtml
     }
-  }, [chapterHtml, allCardsMap])
+  }, [chapterHtml, allCardsMap, minedPatterns])
 
   const calcPages = useCallback(() => {
     const el = contentRef.current
@@ -295,58 +419,28 @@ function EPUBReader({
     // Non-collapsed selection = user dragged to select a phrase
     if (sel && !sel.isCollapsed) {
       const existing = sel.toString().trim()
-      if (existing.length >= 1 && existing.length < 60) {
+      if (existing.length >= 1 && existing.length < MAX_SELECTION_LENGTH) {
         onEpubWordSelect?.(existing)
       }
       return
     }
 
-    // Single click — find the text node at the cursor.
-    // Primary: browser already placed the cursor on mousedown, use that.
-    // Fallback: use geometric caretRangeFromPoint.
-    let textNode: Text | null = null
-    let offset = 0
-
-    if (sel && sel.rangeCount > 0) {
-      const r = sel.getRangeAt(0)
-      if (r.startContainer.nodeType === Node.TEXT_NODE) {
-        textNode = r.startContainer as Text
-        offset = r.startOffset
-      }
-    }
-
-    if (!textNode) {
-      const r = document.caretRangeFromPoint?.(e.clientX, e.clientY)
-      if (r && r.startContainer.nodeType === Node.TEXT_NODE) {
-        textNode = r.startContainer as Text
-        offset = r.startOffset
-      }
-    }
-
-    if (!textNode) return
-
-    const result = extractWordAt(textNode.textContent ?? '', offset)
-    if (!result) return
-
-    // Inject a <span> into the live DOM for persistent yellow highlight.
-    // dangerouslySetInnerHTML only reconciles when chapterHtml changes, so
-    // this span survives React re-renders triggered by the lookup state update.
-    const wordRange = document.createRange()
-    wordRange.setStart(textNode, result.start)
-    wordRange.setEnd(textNode, result.end)
-    const span = document.createElement('span')
-    span.className = 'epub-word-highlight'
-    try {
-      wordRange.surroundContents(span)
-      highlightSpanRef.current = span
-    } catch {
-      // range spans an element boundary (rare in prose) — skip highlight but still look up
-    }
-
-    onEpubWordSelect?.(result.word)
+    // Click alone only places the caret/keeps reading. Lookup and mining are selection-based.
   }, [clearHighlight, onEpubWordSelect])
 
   const handleMouseOver = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const sentenceTarget = (e.target as HTMLElement).closest('.epub-mined-sentence') as HTMLElement | null
+    if (sentenceTarget) {
+      const key = sentenceTarget.dataset.sentence ?? ''
+      const entry = minedPatternMap.get(key)
+      if (entry) {
+        const rect = sentenceTarget.getBoundingClientRect()
+        setPatternTooltip({ entry, x: rect.left + rect.width / 2, y: rect.top })
+        setTooltip(null)
+        return
+      }
+    }
+
     const target = (e.target as HTMLElement).closest('.epub-mined-word') as HTMLElement | null
     if (target && allCardsMap) {
       const word = target.dataset.word ?? ''
@@ -354,11 +448,13 @@ function EPUBReader({
       if (entry) {
         const rect = target.getBoundingClientRect()
         setTooltip({ entry, x: rect.left + rect.width / 2, y: rect.top })
+        setPatternTooltip(null)
         return
       }
     }
     setTooltip(null)
-  }, [allCardsMap])
+    setPatternTooltip(null)
+  }, [allCardsMap, minedPatternMap])
 
   const hasContent = processedHtml != null && !chapterLoading
 
@@ -400,7 +496,7 @@ function EPUBReader({
           ref={contentRef}
           onMouseUp={handleMouseUp}
           onMouseOver={handleMouseOver}
-          onMouseLeave={() => setTooltip(null)}
+          onMouseLeave={() => { setTooltip(null); setPatternTooltip(null) }}
           lang={language}
           className="flex-1 overflow-y-scroll cursor-text"
           style={{ scrollbarWidth: 'none', userSelect: 'text' }}
@@ -469,6 +565,9 @@ function EPUBReader({
       {tooltip && (
         <MinedTooltip entry={tooltip.entry} x={tooltip.x} y={tooltip.y} />
       )}
+      {patternTooltip && (
+        <PatternTooltip entry={patternTooltip.entry} x={patternTooltip.x} y={patternTooltip.y} />
+      )}
     </div>
   )
 }
@@ -489,6 +588,7 @@ export function ReaderPanel({
   onSelectChapter,
   onEpubWordSelect,
   allCardsMap,
+  minedPatterns = [],
 }: ReaderPanelProps) {
   const selectedRef = useRef<HTMLDivElement>(null)
 
@@ -501,9 +601,38 @@ export function ReaderPanel({
     return wordPattern(new Set(allCardsMap.keys()))
   }, [allCardsMap])
 
+  const minedSentenceSet = useMemo(
+    () => new Set((minedPatterns ?? []).map(patternHighlightText).filter((s): s is string => Boolean(s)).map(normalizeHighlightText)),
+    [minedPatterns],
+  )
+  const minedPatternMap = useMemo(() => {
+    const map = new Map<string, MinedPatternEntry>()
+    for (const pattern of minedPatterns ?? []) {
+      const text = patternHighlightText(pattern)
+      if (text) map.set(normalizeHighlightText(text), { pattern })
+    }
+    return map
+  }, [minedPatterns])
+
   const [subtitleTooltip, setSubtitleTooltip] = useState<{ entry: MinedCardEntry; x: number; y: number } | null>(null)
+  const [subtitlePatternTooltip, setSubtitlePatternTooltip] = useState<{ entry: MinedPatternEntry; x: number; y: number } | null>(null)
 
   const handleSubtitleMouseOver = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const sentenceTarget = (e.target as HTMLElement).closest('.epub-mined-sentence') as HTMLElement | null
+    if (sentenceTarget) {
+      const rowEl = sentenceTarget.closest('[data-sentence-id]') as HTMLElement | null
+      const sentenceId = rowEl?.dataset.sentenceId
+      const sentence = sentences.find((item) => item.id === sentenceId)
+      const key = sentenceTarget.getAttribute('data-sentence') ?? normalizeHighlightText(sentence?.content ?? sentenceTarget.textContent ?? '')
+      const entry = minedPatternMap.get(key)
+      if (entry) {
+        const rect = sentenceTarget.getBoundingClientRect()
+        setSubtitlePatternTooltip({ entry, x: rect.left + rect.width / 2, y: rect.top })
+        setSubtitleTooltip(null)
+        return
+      }
+    }
+
     const target = (e.target as HTMLElement).closest('.epub-mined-word') as HTMLElement | null
     if (target && allCardsMap) {
       const word = target.dataset.word ?? ''
@@ -511,11 +640,34 @@ export function ReaderPanel({
       if (entry) {
         const rect = target.getBoundingClientRect()
         setSubtitleTooltip({ entry, x: rect.left + rect.width / 2, y: rect.top })
+        setSubtitlePatternTooltip(null)
         return
       }
     }
     setSubtitleTooltip(null)
-  }, [allCardsMap])
+    setSubtitlePatternTooltip(null)
+  }, [allCardsMap, minedPatternMap, sentences])
+
+  const handleSubtitleMouseUp = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return
+
+    const selection = window.getSelection()
+    const selectedText = selection?.toString().trim() ?? ''
+    if (!selection || selection.isCollapsed || selectedText.length < 1 || selectedText.length >= MAX_SELECTION_LENGTH) return
+
+    const rowEl = (e.target as HTMLElement).closest('[data-sentence-id]') as HTMLElement | null
+    const sentenceId = rowEl?.dataset.sentenceId
+    const sentence = sentences.find((item) => item.id === sentenceId)
+    if (sentence) onSelectSentence(sentence)
+
+    debugLog('reader', 'subtitle-selection', {
+      selectedText,
+      sentenceId,
+      sentence: sentence?.content,
+      sourceId: sentence?.sourceId,
+    })
+    onWordClick(selectedText, selectedText)
+  }, [onSelectSentence, onWordClick, sentences])
 
   if (isEpub) {
     return (
@@ -528,6 +680,7 @@ export function ReaderPanel({
         onSelectChapter={onSelectChapter}
         onEpubWordSelect={onEpubWordSelect}
         allCardsMap={allCardsMap}
+        minedPatterns={minedPatterns}
       />
     )
   }
@@ -546,30 +699,36 @@ export function ReaderPanel({
 
   return (
     <div
-      className="flex flex-col gap-0.5 py-2 overflow-y-auto h-full"
+      className="flex flex-col gap-0.5 py-2 overflow-y-auto h-full select-text"
       onMouseOver={handleSubtitleMouseOver}
-      onMouseLeave={() => setSubtitleTooltip(null)}
+      onMouseUp={handleSubtitleMouseUp}
+      onMouseLeave={() => { setSubtitleTooltip(null); setSubtitlePatternTooltip(null) }}
+      style={{ userSelect: 'text' }}
     >
       {sentences.map((sentence) => {
         const isSelected = selectedSentence?.id === sentence.id
+        const isMinedSentence = minedSentenceSet.has(normalizeHighlightText(sentence.content))
         return (
           <div key={sentence.id} ref={isSelected ? selectedRef : undefined}>
             <SentenceRow
               sentence={sentence}
               language={language}
               isSelected={isSelected}
-              isMined={minedWords.has(sentence.content)}
+              isMined={minedWords.has(sentence.content) && !isMinedSentence}
               selectedWord={selectedWord}
               onClick={() => onSelectSentence(sentence)}
-              onWordClick={onWordClick}
               allCardsMap={allCardsMap}
               minedPattern={minedPattern}
+              isMinedSentence={isMinedSentence}
             />
           </div>
         )
       })}
       {subtitleTooltip && (
         <MinedTooltip entry={subtitleTooltip.entry} x={subtitleTooltip.x} y={subtitleTooltip.y} />
+      )}
+      {subtitlePatternTooltip && (
+        <PatternTooltip entry={subtitlePatternTooltip.entry} x={subtitlePatternTooltip.x} y={subtitlePatternTooltip.y} />
       )}
     </div>
   )

@@ -88,17 +88,36 @@ class DictionaryService {
   // ─── Lookup ────────────────────────────────────────────────────────────────
 
   lookup(word: string, lang: Language): DictEntry[] {
-    const cacheKey = `${lang}:${word}`
+    const normalizedWord = this.normalizeLookupTerm(word, lang)
+    if (!normalizedWord) return []
+
+    const cacheKey = `${lang}:${normalizedWord}`
     const cached = this.cache.get(cacheKey)
     if (cached) return cached
 
     let results: DictEntry[] = []
-    if (lang === 'ja') results = this.lookupJMdict(word)
-    else if (lang === 'zh') results = this.lookupCEDICT(word)
-    else if (lang === 'en') results = this.lookupWordNet(word)
+    if (lang === 'ja') results = this.lookupJMdict(normalizedWord)
+    else if (lang === 'zh') results = this.lookupCEDICT(normalizedWord)
+    else if (lang === 'en') results = this.lookupWordNet(normalizedWord)
 
     this.cache.set(cacheKey, results)
     return results
+  }
+
+  private normalizeLookupTerm(word: string, lang: Language): string {
+    const trimmed = word.trim()
+    if (!trimmed) return ''
+
+    if (lang === 'en') {
+      const match = trimmed.match(/[a-zA-ZÀ-ɏ]+(?:'[a-zA-Z]+)*/)
+      return match?.[0].toLowerCase() ?? ''
+    }
+
+    return trimmed.replace(/^[\s"'“”‘’([{<]+|[\s"'“”‘’)\]}>.,;:!?]+$/g, '')
+  }
+
+  private escapeFts5Query(term: string): string {
+    return `"${term.replace(/"/g, '""')}"`
   }
 
   private lookupJMdict(word: string): DictEntry[] {
@@ -119,7 +138,7 @@ class DictionaryService {
           JOIN entries e ON e.id = entries_fts.rowid
           WHERE entries_fts MATCH ?
           LIMIT 10
-        `).all(word) as { id: number; data_json: string }[]
+        `).all(this.escapeFts5Query(word)) as { id: number; data_json: string }[]
         return ftsRows.map((r) => this.parseJMdictEntry(r.data_json))
       }
 
@@ -263,7 +282,9 @@ class DictionaryService {
 
     try {
       // Strip common contraction suffixes: don't→do, I'm→I, you've→you
-      let lower = word.toLowerCase().replace(/'(t|s|re|ve|ll|d|m)$/, '')
+      const rawLower = word.toLowerCase()
+      const isContraction = /'(t|s|re|ve|ll|d|m)$/.test(rawLower)
+      let lower = rawLower.replace(/'(t|s|re|ve|ll|d|m)$/, '')
 
       let rows = db.prepare('SELECT data_json FROM entries WHERE lemma = ?')
         .all(lower) as { data_json: string }[]
@@ -287,13 +308,14 @@ class DictionaryService {
         }
       }
 
-      // FTS trigram fallback
-      if (!rows.length) {
+      // FTS trigram fallback. Keep it for substantial lookup terms, but avoid
+      // noisy semantic matches for short function words and contractions.
+      if (!rows.length && !isContraction && lower.length >= 4) {
         rows = db.prepare(`
           SELECT e.data_json FROM entries_fts
           JOIN entries e ON e.id = entries_fts.rowid
           WHERE entries_fts MATCH ? LIMIT 5
-        `).all(lower) as { data_json: string }[]
+        `).all(this.escapeFts5Query(lower)) as { data_json: string }[]
       }
 
       return rows.map((r) => JSON.parse(r.data_json) as DictEntry)

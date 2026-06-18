@@ -82,6 +82,26 @@ describe('DatabaseService — local decks and cards', () => {
     expect(dbService.getDeckById(deck.id)).toBeNull()
   })
 
+  it('recreates a default deck when inserting a card with a deleted deck id', () => {
+    const originalDefault = dbService.getDecks()[0]
+    const spareDeck = dbService.createDeck('Spare')
+    dbService.deleteDeck(originalDefault.id)
+
+    const card = dbService.insertCard({
+      deckId: originalDefault.id,
+      template: 'Basic',
+      frontHtml: 'front',
+      backHtml: 'back',
+      tags: [],
+    })
+
+    const defaultDeck = dbService.getDecks().find((deck) => deck.name === 'Default')
+    expect(defaultDeck).toBeDefined()
+    expect(card.deckId).toBe(defaultDeck?.id)
+    expect(card.deckId).not.toBe(originalDefault.id)
+    expect(dbService.getDeckById(spareDeck.id)).not.toBeNull()
+  })
+
   it('rejects deleting a non-empty deck', () => {
     const deck = dbService.createDeck('Not Empty')
     dbService.insertCard({
@@ -123,5 +143,38 @@ describe('DatabaseService — local decks and cards', () => {
 
     dbService.unsuspendCards([card.id])
     expect(dbService.getCard(card.id)?.cardState).toBe('new')
+  })
+})
+
+describe('DatabaseService — patterns', () => {
+  it('normalizes pattern text and rejects punctuation/whitespace duplicates', () => {
+    const first = dbService.createPattern({
+      language: 'en',
+      patternText: '  Say my name.  ',
+      tags: ['pattern', 'en'],
+    })
+
+    expect(first.patternText).toBe('Say my name')
+    expect(() => dbService.createPattern({
+      language: 'en',
+      patternText: 'say   my name!!!',
+      tags: ['pattern', 'en'],
+    })).toThrow(/Duplicate pattern/)
+  })
+
+  it('allows the same normalized pattern in a different language', () => {
+    dbService.createPattern({
+      language: 'en',
+      patternText: 'Say my name.',
+      tags: ['pattern', 'en'],
+    })
+
+    const pattern = dbService.createPattern({
+      language: 'fr',
+      patternText: 'Say my name.',
+      tags: ['pattern', 'fr'],
+    })
+
+    expect(pattern.language).toBe('fr')
   })
 })

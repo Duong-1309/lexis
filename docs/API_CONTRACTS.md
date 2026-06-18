@@ -23,6 +23,8 @@ interface LexisAPI {
   audio: AudioAPI;
   decks: DecksAPI;
   cards: CardsAPI;
+  patterns: PatternsAPI;  // planned Sprint 7
+  drills: DrillsAPI;      // planned Sprint 7
   ai: AIAPI;
   stats: StatsAPI;
   settings: SettingsAPI;
@@ -306,13 +308,26 @@ interface AIAPI {
   hasApiKey(): Promise<IPCResult<boolean>>;
 
   /**
+   * Translate a dictionary definition into the user's native language.
+   * NON-STREAMING — returns the full translation string.
+   * Checks definition_translations cache first; calls AI on cache miss.
+   * Cache key: (word, targetLang, nativeLang).
+   */
+  translateDefinition(
+    word: string,
+    definition: string,
+    targetLang: Language,
+    nativeLang: NativeLanguage,
+  ): Promise<IPCResult<string>>;
+
+  /**
    * Start a grammar explanation stream.
    * Returns a streamId. Listen on 'ai:stream-chunk' and 'ai:stream-done' events.
    */
   explainGrammar(
-    sentence: string, 
-    targetWord: string, 
-    language: Language
+    sentence: string,
+    targetWord: string,
+    language: Language,
   ): Promise<IPCResult<{ streamId: string }>>;
 
   /**
@@ -320,7 +335,7 @@ interface AIAPI {
    */
   translateWithContext(
     sentence: string,
-    targetLanguage: string
+    targetLanguage: string,
   ): Promise<IPCResult<{ streamId: string }>>;
 
   /**
@@ -329,8 +344,14 @@ interface AIAPI {
   generateExamples(
     word: string,
     language: Language,
-    count?: number
+    count?: number,
   ): Promise<IPCResult<{ streamId: string }>>;
+
+  /**
+   * Evaluate a user's active-production drill answer.
+   * NON-STREAMING — returns structured correction data.
+   */
+  evaluateDrillAnswer(input: DrillEvaluationInput): Promise<IPCResult<DrillEvaluation>>;
 
   /**
    * Cancel an active stream.
@@ -344,6 +365,86 @@ interface AIAPI {
   removeStreamListeners(): void;
 }
 ```
+
+---
+
+## `window.lexis.patterns` — Pattern Mining (planned Sprint 7)
+
+```typescript
+interface PatternsAPI {
+  create(draft: PatternDraft): Promise<IPCResult<Pattern>>;
+  update(id: number, updates: PatternUpdate): Promise<IPCResult<void>>;
+  list(filters?: PatternFilters): Promise<IPCResult<Pattern[]>>;
+  get(id: number): Promise<IPCResult<Pattern | null>>;
+  delete(id: number): Promise<IPCResult<void>>;
+}
+
+interface PatternDraft {
+  deckId?: number;
+  language: Language;
+  patternText: string;
+  meaningNative?: string;
+  explanation?: string;
+  exampleSentence?: string;
+  sourceSentenceId?: number;
+  sourceId?: number;
+  tags: string[];
+}
+```
+
+IPC channels:
+
+| Channel | Direction | Owner | Purpose |
+|---------|-----------|-------|---------|
+| `patterns:create` | Renderer→Main | db/patterns | Create mined pattern |
+| `patterns:update` | Renderer→Main | db/patterns | Edit pattern metadata |
+| `patterns:list` | Renderer→Main | db/patterns | List/filter patterns |
+| `patterns:get` | Renderer→Main | db/patterns | Fetch one pattern |
+| `patterns:delete` | Renderer→Main | db/patterns | Delete pattern and prompts/attempts |
+
+---
+
+## `window.lexis.drills` — Active Production Drills (planned Sprint 7)
+
+```typescript
+interface DrillsAPI {
+  createPrompt(draft: DrillPromptDraft): Promise<IPCResult<DrillPrompt>>;
+  listPrompts(patternId: number): Promise<IPCResult<DrillPrompt[]>>;
+  saveAttempt(draft: DrillAttemptDraft): Promise<IPCResult<DrillAttempt>>;
+  listAttempts(patternId: number): Promise<IPCResult<DrillAttempt[]>>;
+  createReviewCard(attemptId: number, deckId: number): Promise<IPCResult<Card>>;
+}
+
+interface DrillEvaluationInput {
+  language: Language;
+  patternText: string;
+  prompt: string;
+  expectedAnswer?: string;
+  userAnswer: string;
+  nativeLanguage: NativeLanguage;
+}
+
+interface DrillEvaluation {
+  score: number;
+  verdict: 'correct' | 'needs_fix' | 'incorrect';
+  correctedAnswer: string;
+  feedback: string;
+  suggestions: string[];
+  examples: string[];
+  mistakeTypes: string[];
+}
+```
+
+IPC channels:
+
+| Channel | Direction | Owner | Purpose |
+|---------|-----------|-------|---------|
+| `drills:create-prompt` | Renderer→Main | db/patterns | Save reusable drill prompt |
+| `drills:list-prompts` | Renderer→Main | db/patterns | List prompts for pattern |
+| `drills:save-attempt` | Renderer→Main | db/patterns | Persist user answer/correction |
+| `drills:list-attempts` | Renderer→Main | db/patterns | Show attempt history |
+| `drills:create-review-card` | Renderer→Main | db/cards | Turn attempt into SRS card |
+| `ai:evaluate-drill-answer` | Renderer→Main | ai.ts | Check answer and return correction |
 
 ### Streaming Implementation Pattern
 
@@ -462,6 +563,7 @@ interface SettingsAPI {
 
 interface UserSettings {
   defaultDeckId: number;
+  nativeLanguage: 'vi' | 'en';      // user's native/study language, default 'vi'
 
   // APIs
   aiProvider: 'anthropic' | 'openai';
@@ -476,7 +578,6 @@ interface UserSettings {
 
   // App
   theme: 'light' | 'dark' | 'system';
-  language: string;                 // UI language (en, ja, zh, etc.)
   checkForUpdates: boolean;
   firstLaunchDone: boolean;
 }
@@ -518,6 +619,7 @@ interface UserSettings {
 | `cards:delete` | Renderer→Main | db.ts | Delete card |
 | `cards:is-duplicate` | Renderer→Main | db.ts | Check local duplicate |
 | `cards:update` | Renderer→Main | db.ts | Update card content |
+| `ai:translate-definition` | Renderer→Main | ai.ts | Translate def to native lang (non-streaming, cached) |
 | `ai:explain-grammar` | Renderer→Main | ai.ts | Start grammar stream |
 | `ai:translate` | Renderer→Main | ai.ts | Start translation stream |
 | `ai:examples` | Renderer→Main | ai.ts | Start examples stream |
@@ -534,4 +636,23 @@ interface UserSettings {
 
 ---
 
-*End of API Contracts v1.0*
+## `window.lexis.media` — Plain Text Import (planned Sprint 8)
+
+```typescript
+interface MediaAPI {
+  // ... existing methods ...
+
+  /**
+   * Import plain text content directly (no file required).
+   * Splits by sentence boundaries and stores as subtitle-style sentences.
+   * Used for copy-paste from browser, chat apps, etc.
+   */
+  importText(text: string, title: string, language: Language): Promise<IPCResult<MediaSource>>;
+}
+```
+
+IPC channel: `media:import-text`
+
+---
+
+End of API Contracts v3.0 — updated for Sentence Mining + Pattern Drill planning

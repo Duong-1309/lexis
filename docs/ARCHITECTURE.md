@@ -49,7 +49,7 @@ Lexis follows the standard Electron two-process architecture with strict securit
 External Services (optional, internet required):
   Forvo API      → pronunciation audio when configured
   Anthropic API  → AI explanations/translations when selected
-  OpenAI API     → AI explanations/translations when selected
+  OpenAI API     → AI explanations/translations/drill checks when selected
 ```
 
 ---
@@ -81,6 +81,10 @@ class DatabaseService {
   // Mined words + local SRS cards
   insertMinedWord(word: MinedWordInsert): MinedWord
   getMinedWords(): MinedWord[]
+  createPattern(draft: PatternDraft): Pattern
+  getPatterns(deckId?: number): Pattern[]
+  createDrillAttempt(draft: DrillAttemptDraft): DrillAttempt
+  getDrillAttempts(patternId: number): DrillAttempt[]
   createDeck(name: string, description?: string): Deck
   getDecks(): Deck[]
   insertCard(draft: DraftCard): Card
@@ -219,7 +223,43 @@ class AIService {
   initialize(provider: AIProvider, anthropicKey: string, openAIKey: string): void
   testKey(key: string, provider: AIProvider): Promise<boolean>
   hasApiKey(): boolean
+
+  async evaluateDrillAnswer(
+    input: DrillEvaluationInput
+  ): Promise<DrillEvaluation>  // non-streaming, structured
 }
+```
+
+### 2.5 `patterns.ts` / Pattern Drill Service (planned)
+
+**Responsibility:** Manage mined patterns, generated drill prompts, user
+production attempts, and AI feedback persistence.
+
+```typescript
+class PatternService {
+  createPattern(draft: PatternDraft): Pattern
+  updatePattern(id: number, updates: PatternUpdate): void
+  listPatterns(filters?: PatternFilters): Pattern[]
+  getPattern(id: number): Pattern | null
+
+  createPrompt(patternId: number, type: DrillType): DrillPrompt
+  evaluateAttempt(input: DrillEvaluationInput): Promise<DrillEvaluation>
+  saveAttempt(draft: DrillAttemptDraft): DrillAttempt
+  createReviewCardFromAttempt(attemptId: number, deckId: number): Card
+}
+```
+
+Pattern Drill is intentionally separate from `srs.ts`. SRS schedules cards and
+review events; Pattern Drill owns active production attempts and corrections.
+
+```
+Reader selection
+  -> Mine as Pattern
+  -> PatternService.createPattern
+  -> DrillSession prompt
+  -> AIService.evaluateDrillAnswer
+  -> PatternService.saveAttempt
+  -> optional cards:create from attempt
 ```
 
 **Grammar Explain System Prompt:**
@@ -234,7 +274,7 @@ Be concise. Use bullet points. Target intermediate learners.
 Language: {language}
 ```
 
-### 2.5 `audio.ts` — Audio Service
+### 2.6 `audio.ts` — Audio Service
 
 ```typescript
 class AudioService {
@@ -258,7 +298,7 @@ interface AudioResult {
 }
 ```
 
-### 2.6 `parsers/srt.ts`
+### 2.7 `parsers/srt.ts`
 
 ```typescript
 interface SubtitleEntry {
@@ -274,7 +314,7 @@ function parseASS(content: string): SubtitleEntry[]
 function stripTags(text: string): string  // remove <i>, <b>, ASS override tags
 ```
 
-### 2.7 `parsers/epub.ts`
+### 2.8 `parsers/epub.ts`
 
 ```typescript
 interface EPUBChapter {

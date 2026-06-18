@@ -2,6 +2,27 @@ import { useEffect, useState } from 'react'
 import { useCardStore } from '../../store/cardStore'
 import type { Deck } from '../../types'
 
+function htmlToText(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+}
+
+function textToHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/\n/g, '<br>')
+}
+
 interface CardBuilderProps {
   onSaved?: () => void
 }
@@ -29,7 +50,15 @@ export function CardBuilder({ onSaved }: CardBuilderProps) {
 
   const loadDecks = async () => {
     const result = await window.lexis.decks.list()
-    if (result.data) setDecks(result.data)
+    if (!result.data) return
+    setDecks(result.data)
+
+    if (!draft) return
+    const currentDeckExists = result.data.some((deck) => deck.id === draft.deckId)
+    const fallbackDeck = result.data[0]
+    if (!currentDeckExists && fallbackDeck) {
+      updateDraft({ deckId: fallbackDeck.id })
+    }
   }
 
   const handleAddTag = () => {
@@ -118,8 +147,8 @@ export function CardBuilder({ onSaved }: CardBuilderProps) {
               <label className="block text-xs text-gray-400 mb-1">Back</label>
               <textarea
                 className="w-full h-28 px-3 py-2 bg-gray-800 border border-white/10 rounded-lg text-sm text-gray-100 resize-none focus:outline-none focus:border-blue-500/50"
-                value={draft.backHtml}
-                onChange={(e) => updateDraft({ backHtml: e.target.value })}
+                value={htmlToText(draft.backHtml)}
+                onChange={(e) => updateDraft({ backHtml: textToHtml(e.target.value) })}
               />
             </div>
 

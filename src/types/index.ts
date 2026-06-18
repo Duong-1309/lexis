@@ -1,8 +1,11 @@
 export type Language = 'ja' | 'zh' | 'ko' | 'en' | 'fr' | 'es'
+export type NativeLanguage = 'vi' | 'en'
 export type MediaType = 'subtitle' | 'epub' | 'web'
-export type CardTemplate = 'Basic' | 'Cloze'
+export type CardTemplate = 'Basic' | 'Cloze' | 'Word' | 'Sentence' | 'Pattern' | 'DrillAttempt'
 export type CardState = 'new' | 'learning' | 'review' | 'suspended'
 export type ReviewRating = 1 | 2 | 3 | 4 // Again / Hard / Good / Easy
+export type DrillType = 'translation' | 'transform' | 'substitution' | 'free_production' | 'cloze'
+export type DrillVerdict = 'correct' | 'needs_fix' | 'incorrect'
 
 // ─── Media ───────────────────────────────────────────────────────────────────
 
@@ -81,6 +84,11 @@ export interface Card {
   word?: string
   reading?: string
   language?: Language
+  nativeDefinition?: string
+  partOfSpeech?: string
+  levelInfo?: { jlpt?: number; hsk?: number }
+  audioWord?: string
+  stepIndex: number
   sourceSentence?: string
   sourceId?: number
   dueDate: string
@@ -102,6 +110,10 @@ export interface DraftCard {
   word?: string
   reading?: string
   language?: Language
+  nativeDefinition?: string
+  partOfSpeech?: string
+  levelInfo?: { jlpt?: number; hsk?: number }
+  audioWord?: string
   sourceSentence?: string
   sourceId?: number
 }
@@ -135,6 +147,7 @@ export interface SRSResult {
   reps: number
   lapses: number
   cardState: CardState
+  stepIndex: number
   dueDate: string
 }
 
@@ -143,6 +156,109 @@ export interface ReviewSession {
   totalDue: number
   newCount: number
   reviewCount: number
+}
+
+// ─── Patterns + Active Production Drills ─────────────────────────────────────
+
+export interface Pattern {
+  id: number
+  deckId?: number
+  language: Language
+  patternText: string
+  meaningNative?: string
+  explanation?: string
+  exampleSentence?: string
+  sourceSentenceId?: number
+  sourceId?: number
+  tags: string[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PatternDraft {
+  deckId?: number
+  language: Language
+  patternText: string
+  meaningNative?: string
+  explanation?: string
+  exampleSentence?: string
+  slotPhrase?: string
+  sourceSentenceId?: number
+  sourceId?: number
+  tags: string[]
+}
+
+export type PatternUpdate = Partial<PatternDraft>
+
+export interface PatternFilters {
+  deckId?: number
+  language?: Language
+  query?: string
+}
+
+export interface DrillPrompt {
+  id: number
+  patternId: number
+  type: DrillType
+  promptNative?: string
+  promptTarget?: string
+  expectedAnswer?: string
+  variables: Record<string, string>
+  createdAt: string
+}
+
+export interface DrillPromptDraft {
+  patternId: number
+  type: DrillType
+  promptNative?: string
+  promptTarget?: string
+  expectedAnswer?: string
+  variables?: Record<string, string>
+}
+
+export interface DrillAttempt {
+  id: number
+  patternId: number
+  promptId?: number
+  cardId?: number
+  userAnswer: string
+  correctedAnswer?: string
+  feedback?: string
+  score?: number
+  verdict?: DrillVerdict
+  mistakeTypes: string[]
+  createdAt: string
+}
+
+export interface DrillAttemptDraft {
+  patternId: number
+  promptId?: number
+  cardId?: number
+  userAnswer: string
+  correctedAnswer?: string
+  feedback?: string
+  score?: number
+  verdict?: DrillVerdict
+  mistakeTypes?: string[]
+}
+
+export interface DrillEvaluationInput {
+  language: Language
+  patternText: string
+  prompt: string
+  expectedAnswer?: string
+  userAnswer: string
+  nativeLanguage: NativeLanguage
+}
+
+export interface DrillEvaluation {
+  score: number
+  verdict: DrillVerdict
+  correctedAnswer: string
+  feedback: string
+  suggestions: string[]
+  examples: string[]
+  mistakeTypes: string[]
 }
 
 // ─── Dictionary ───────────────────────────────────────────────────────────────
@@ -223,17 +339,33 @@ export interface AudioResult {
 
 export type AIProvider = 'anthropic' | 'openai'
 
+export interface SchedulingSettings {
+  learningStepsMinutes: number[]
+  dailyDueTime: string
+  newCardsPerDay: number
+  reviewsPerDay: number
+}
+
+export interface CardSettings {
+  defaultTemplate: CardTemplate
+  showNativeDefinitionFirst: boolean
+  autoPlayAudio: boolean
+}
+
 export interface UserSettings {
   defaultDeckId: number
+  nativeLanguage: NativeLanguage
   aiProvider: AIProvider
   anthropicApiKey: string
   openaiApiKey: string
   forvoApiKey: string
+  timeZone: string
+  scheduling: SchedulingSettings
+  cards: CardSettings
   readerFontSize: number
   readerLineHeight: number
   readerFont: string
   theme: 'light' | 'dark' | 'system'
-  language: string
   checkForUpdates: boolean
   firstLaunchDone: boolean
 }
@@ -288,11 +420,49 @@ export interface CardsAPI {
   update(id: number, updates: CardUpdate): Promise<IPCResult<void>>
 }
 
+export interface PatternsAPI {
+  create(draft: PatternDraft): Promise<IPCResult<Pattern>>
+  update(id: number, updates: PatternUpdate): Promise<IPCResult<void>>
+  list(filters?: PatternFilters): Promise<IPCResult<Pattern[]>>
+  get(id: number): Promise<IPCResult<Pattern | null>>
+  delete(id: number): Promise<IPCResult<void>>
+  isDuplicate(patternText: string, language: Language, excludeId?: number): Promise<IPCResult<boolean>>
+}
+
+export interface DrillsAPI {
+  createPrompt(draft: DrillPromptDraft): Promise<IPCResult<DrillPrompt>>
+  listPrompts(patternId: number): Promise<IPCResult<DrillPrompt[]>>
+  saveAttempt(draft: DrillAttemptDraft): Promise<IPCResult<DrillAttempt>>
+  listAttempts(patternId: number): Promise<IPCResult<DrillAttempt[]>>
+  createReviewCard(attemptId: number, deckId: number): Promise<IPCResult<Card>>
+}
+
 export interface AIAPI {
   hasApiKey(): Promise<IPCResult<boolean>>
-  explainGrammar(sentence: string, targetWord: string, language: Language): Promise<IPCResult<{ streamId: string }>>
-  translateWithContext(sentence: string, targetLanguage: string): Promise<IPCResult<{ streamId: string }>>
-  generateExamples(word: string, language: Language, count?: number): Promise<IPCResult<{ streamId: string }>>
+  translateDefinition(
+    word: string,
+    definition: string,
+    targetLang: Language,
+    nativeLang: NativeLanguage,
+  ): Promise<IPCResult<string>>
+  explainGrammar(
+    sentence: string,
+    targetWord: string,
+    language: Language,
+    nativeLanguage?: NativeLanguage,
+  ): Promise<IPCResult<{ streamId: string }>>
+  translateWithContext(
+    sentence: string,
+    targetLanguage: string,
+    nativeLanguage?: NativeLanguage,
+  ): Promise<IPCResult<{ streamId: string }>>
+  generateExamples(
+    word: string,
+    language: Language,
+    count?: number,
+    nativeLanguage?: NativeLanguage,
+  ): Promise<IPCResult<{ streamId: string }>>
+  evaluateDrillAnswer(input: DrillEvaluationInput): Promise<IPCResult<DrillEvaluation>>
   cancelStream(streamId: string): Promise<IPCResult<void>>
   onStreamChunk(callback: (streamId: string, chunk: string) => void): void
   onStreamDone(callback: (streamId: string) => void): void
@@ -319,6 +489,8 @@ export interface LexisAPI {
   audio: AudioAPI
   decks: DecksAPI
   cards: CardsAPI
+  patterns: PatternsAPI
+  drills: DrillsAPI
   ai: AIAPI
   stats: StatsAPI
   settings: SettingsAPI

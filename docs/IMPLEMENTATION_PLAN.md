@@ -492,42 +492,488 @@ Create `src/components/Settings/SettingsPage.tsx`:
 
 ---
 
-## Sprint 6 — Deck Browser + Stats + Packaging
+## Sprint 6 — Native Language Flow + Rich Cards + SRS Fixes
 
 ### Sprint 6 Goal
 
-Shippable v1.0: browse/manage cards, stats dashboard, packaged app.
+The full learning loop works correctly for a Vietnamese speaker: look up a Japanese/Chinese/English word → see definition in Vietnamese → create a rich card → review with audio.
 
-### Sprint 6 Tasks
+### Sprint 6 Status
 
-#### Task 6.1 — Deck Browser
+**Done (2026-06-14):**
 
-Create `src/components/Decks/DeckBrowser.tsx`:
+- `DeckBrowser.tsx` ✅ — table, search/filter, bulk actions, `CardEditModal`, export JSON
+- `StatsDashboard.tsx` ✅ — derived from local `review_log` + `cards`, bar chart, streak
+- Stats + DeckBrowser embedded in app layout ✅
+- Hotkeys scoped by workflow (Shift+A reader-only, 1–4 review-only) ✅
+- DevTools gated to dev mode ✅
+- `buildDraft` HTML-escaping + case-insensitive highlight fix ✅
 
-- Table of all cards in a deck (word, state, due date, ease, lapses)
-- Search/filter bar
-- Bulk actions: suspend, delete
-- Edit card modal (edit front/back HTML, tags)
-- Export deck as JSON
+**Remaining (implementation plan below):**
 
-#### Task 6.2 — Stats Dashboard
+---
 
-Create `src/components/Stats/StatsDashboard.tsx`:
+### Task 6.A — Migration 003
 
-- Summary: cards reviewed today / streak / total cards / retention rate
-- Daily bar chart for last 30 days (reviews + new cards, using `recharts`)
-- Per-deck breakdown table
-- Heatmap calendar (GitHub-style, last 3 months)
+Add to `db.class.ts` `MIGRATIONS` array (version 3):
 
-#### Task 6.3 — Window Polish
+```sql
+ALTER TABLE cards ADD COLUMN native_definition TEXT;
+ALTER TABLE cards ADD COLUMN part_of_speech    TEXT;
+ALTER TABLE cards ADD COLUMN level_info        TEXT;   -- JSON: {"jlpt":5}
+ALTER TABLE cards ADD COLUMN audio_word        TEXT;
+ALTER TABLE cards ADD COLUMN step_index        INTEGER NOT NULL DEFAULT 0;
 
-- Window state persistence via `electron-window-state`
-- App icon in `buildResources/`
-- Onboarding modal on first launch (first-time UX)
+CREATE TABLE definition_translations (
+  word        TEXT NOT NULL,
+  target_lang TEXT NOT NULL,
+  native_lang TEXT NOT NULL,
+  translation TEXT NOT NULL,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (word, target_lang, native_lang)
+);
+```
 
-#### Task 6.4 — Packaging
+Add DB methods: `getCachedTranslation(word, targetLang, nativeLang)`, `cacheTranslation(entry)`.
 
-Configure `electron-builder.yml` for:
+---
+
+### Task 6.B — AI Translation Service
+
+Update `electron/services/ai.ts`:
+
+```typescript
+async translateDefinition(
+  word: string,
+  definition: string,
+  targetLang: Language,
+  nativeLang: NativeLanguage,
+): Promise<string>
+```
+
+- Non-streaming (single `messages.create` call, no stream)
+- Prompt: _"Translate this {targetLang} dictionary definition to {nativeLang}. Word: {word}. Definition: {definition}. Return only the translation, concise, no extra explanation."_
+- Returns the translated string
+
+Add IPC: `ai:translate-definition` in `main.ts` + `preload.ts` + `types/index.ts`:
+
+```typescript
+// main.ts
+ipcMain.handle('ai:translate-definition', async (_e, word, definition, targetLang, nativeLang) =>
+  wrapResult(async () => {
+    const cached = db.getCachedTranslation(word, targetLang, nativeLang)
+    if (cached) return cached
+    const translation = await aiService.translateDefinition(word, definition, targetLang, nativeLang)
+    db.cacheTranslation({ word, targetLang, nativeLang, translation })
+    return translation
+  })
+)
+```
+
+---
+
+### Task 6.C — Settings: nativeLanguage
+
+Update `electron/services/settings.ts`:
+
+- Add `nativeLanguage: 'vi'` to default settings object
+- Update `UserSettings` type in `src/types/index.ts`
+
+---
+
+### Task 6.D — LookupPanel: Vietnamese Definition
+
+Update `src/components/Lookup/LookupPanel.tsx`:
+
+After dict lookup resolves (`results` populated):
+
+1. Read `nativeLanguage` from settings store (or fetch once at mount)
+2. If `nativeLanguage !== 'en'` and AI has key:
+   - Set `translating = true`
+   - Call `window.lexis.ai.translateDefinition(word, englishDef, language, nativeLanguage)`
+   - On resolve: set `nativeDefinition` in local state, `translating = false`
+3. Display:
+
+   ```text
+   ăn, dùng bữa        ← nativeDefinition (large, primary)  [skeleton while loading]
+   to eat               ← English original (small, muted)
+   JLPT N5 · Verb       ← level + POS badge
+   ```
+
+4. If no API key: show English only (no error, silent fallback)
+
+---
+
+### Task 6.E — Rich Card Builder
+
+Update `src/store/cardStore.ts` — `buildDraft`:
+
+Accept new opts: `nativeDefinition`, `partOfSpeech`, `levelInfo`, `audioWord`.
+
+Generate structured card HTML:
+
+```typescript
+// Front
+`<div class="card-word">${word}${reading ? `【${reading}】` : ''}</div>
+ <div class="card-meta">${levelBadge} · ${partOfSpeech}</div>`
+
+// Back
+`<div class="card-native-def">${nativeDefinition}</div>
+ <div class="card-en-def">${englishDefinition}</div>
+ <div class="card-sentence"><em>${highlightedSentence}</em></div>`
+```
+
+Pass `nativeDefinition` and dict metadata from `LookupPanel.handleAddToDeck` + `useHotkeys` Shift+A handler.
+
+Update `DraftCard` type to include: `nativeDefinition?`, `partOfSpeech?`, `levelInfo?`, `audioWord?`.
+
+---
+
+### Task 6.F — Audio Button in ReviewSession
+
+Update `src/components/Review/ReviewSession.tsx`:
+
+- When card face shows (front or back), render `<AudioButton word={card.audioWord ?? card.word} language={card.language} />`
+- Reuse existing `AudioButton` component from `src/components/Lookup/AudioButton.tsx`
+- Position: bottom-right corner of card face
+- Keyboard: `P` plays audio during review (add to session hotkeys)
+
+---
+
+### Task 6.G — SM-2 Bug Fixes + Learning Steps
+
+Update `electron/services/srs.ts`:
+
+1. **Fix Hard reps bug**: remove `reps = Math.max(0, reps - 1)` — reps unchanged on Hard
+2. **Add relearning**: `rating === 1` sets `step_index = 1` (not full reset to new)
+3. **Add fuzz**: `interval = Math.round(interval * (0.95 + Math.random() * 0.10))`
+4. **Add learning steps**: check `step_index < 3` before applying daily interval logic:
+   - `step_index === 0` or `1` + Good/Easy → advance to next step
+   - `step_index === 2` + Good/Easy → `step_index = 3`, `interval = 1`, graduate
+5. **Add relearning state**: `card_state = 'learning'` when `step_index < 3`
+
+Update `ReviewSession.tsx`:
+
+- Cards at `step_index < 3` that are rated Good stay in the current session queue at their step delay
+- Session tracks these separately from the daily due list
+
+Update unit tests in `electron/__tests__/srs.test.ts`:
+
+- Add tests for learning steps, relearning, fuzz range, Hard reps fix
+
+### Sprint 6 Acceptance Tests
+
+- [ ] Japanese word lookup → Vietnamese definition appears within 2s (or instantly from cache)
+- [ ] Same word lookup again → instant (cache hit, no AI call)
+- [ ] Press A → Card back shows Vietnamese definition as primary
+- [ ] Card front shows JLPT level badge + POS
+- [ ] Audio button appears on review card (front and back)
+- [ ] P key plays audio during review
+- [ ] Hard rating no longer decrements reps
+- [ ] Again on a graduated card → enters relearning step (not reset to new)
+- [ ] New card → 1min step → 10min step → graduates with interval=1
+- [ ] `npm run typecheck` — 0 errors
+- [ ] `npm run test` — all pass
+
+### Sprint 6 Runtime Test Plan / Issues to Watch
+
+Use this checklist while testing the app manually. Fix issues as they appear in real use.
+
+- [ ] `Shift+A` creates the same rich card as the Add to Deck button:
+  - Vietnamese/native definition is preserved on the card back
+  - English definition appears as secondary text
+  - POS and JLPT/HSK metadata appear on the card front when available
+  - Source sentence and highlighted target word are preserved
+  - `audioWord` is saved for review playback
+- [ ] Due dates display in the configured timezone:
+  - Deck Browser does not show raw UTC timestamps such as `05:xx` for Vietnam users
+  - Mined-word tooltip displays `Due now`, minutes, hours, or days correctly
+  - Stats/due counts remain consistent with local review expectations
+- [ ] Review learning queue feels acceptable:
+  - New card Good → returns after the 1-minute learning step
+  - Second Good → schedules the 10-minute step
+  - Final Good → graduates to interval-based scheduling
+  - Waiting screen is not confusing or disruptive during normal review
+- [ ] Card editor never exposes raw generated HTML during normal editing:
+  - CardBuilder back editor shows readable text, not `<strong>...`
+  - Deck Browser edit modal shows readable text, not raw HTML
+  - Review still renders styled HTML correctly after editing
+- [ ] Settings framework behaves as a stable future config surface:
+  - `Scheduling` values save/reload: timezone, learning steps, daily due time, limits
+  - `Cards` values save/reload: default template, native definition first, auto-play audio
+  - Saved settings are not yet required to change SRS/card behavior until explicitly wired
+
+---
+
+## Sprint 7 — Pattern Drill Foundation
+
+### Sprint 7 Goal
+
+Lexis becomes a Sentence Mining + Pattern Drill app, not just a flashcard/SRS app. Users can mine a sentence as a reusable pattern, create active-production prompts, write their own answer, receive correction, and save the attempt for later review.
+
+### Sprint 7 Status
+
+**Done (2026-06-18):**
+
+- Migration 004 foundation implemented in `electron/services/db.class.ts`
+- Shared Pattern/Drill types and `window.lexis.patterns` / `window.lexis.drills` API surface added
+- IPC handlers wired for pattern CRUD, drill prompt/attempt persistence, and review-card creation from attempt
+- `ai:evaluate-drill-answer` contract wired with structured non-streaming AI evaluation
+- PatternBuilder MVP added and LookupPanel can open "Mine Pattern" from current word/sentence context
+- Reader subtitle/EPUB selection can feed lookup/pattern mining without layout-shifting inline actions
+- PatternBuilder can use the full source sentence or turn the selected Slot Phrase into a `[slot]` with preview
+- PatternDrillPanel MVP added: list mined patterns, write a free-production answer, AI-evaluate it, save attempt, and create review card
+- Selection flow split: single-word selection uses dictionary/native definition only; phrase/sentence selection uses AI Translate, Explain, and Examples without dictionary word-definition fallback
+- Selection flow is language-agnostic for subtitle/EPUB mining: whitespace, multilingual sentence punctuation, full-sentence selection, and long CJK/Hangul selections route to sentence/pattern AI actions
+- Pattern duplicate checks run before save using normalized text (case, punctuation, symbols, and whitespace)
+- Mined patterns highlight as full sentences in Reader and take priority over word highlights; hover shows pattern tooltip
+- Pattern Drill creates default free-production prompts, stores prompt-linked attempts, creates review cards, and keeps drill cards out of Reader word-highlight maps
+- Drills sidebar includes search, language filter, latest-attempt status badges, and Next Pattern practice navigation
+- Manual runtime test pass completed by user on 2026-06-18
+
+### Sprint 7 Closeout Test Notes
+
+- [x] Subtitle and EPUB phrase/sentence selections open AI actions consistently
+- [x] English and non-English subtitle selections route through the same mining flow
+- [x] Translate/Explain/Examples outputs are captured into PatternBuilder draft fields
+- [x] Duplicate pattern warning appears before save and still rechecks on save
+- [x] Mined pattern sentences highlight in subtitle and EPUB readers
+- [x] Sentence highlight hover shows pattern tooltip; word hover still shows card tooltip
+- [x] Pattern Drill supports Check Answer, Make Card, Review Now, latest attempt badges, and Next Pattern
+- [x] Deck Browser displays drill cards by user sentence instead of source sentence/pattern text
+- [x] `npm run typecheck` — 0 errors
+- [x] `npm run test` — all pass
+- [x] `npm run build` — pass
+
+### Sprint 7 Tasks
+
+#### Task 7.1 — Product/UX: Mine Mode Selector
+
+Reader/Lookup must expose the mining decision explicitly:
+
+- Mine as Word
+- Mine as Sentence
+- Mine as Pattern
+
+Implementation notes:
+
+- Current Add to Deck / `Shift+A` remains Word mode
+- Add sentence-level action from selected sentence
+- Add pattern action from selected phrase/sentence
+- Keep reading flow fast; deep editing happens after save
+
+#### Task 7.2 — Data Model: Migration 004
+
+Add planned tables from `docs/DATA_MODEL.md`:
+
+- `patterns`
+- `drill_prompts`
+- `drill_attempts`
+
+Add row mapping methods:
+
+- `createPattern`
+- `updatePattern`
+- `getPattern`
+- `listPatterns`
+- `deletePattern`
+- `createDrillPrompt`
+- `listDrillPrompts`
+- `saveDrillAttempt`
+- `listDrillAttempts`
+
+#### Task 7.3 — Types + IPC Contracts
+
+Add shared types:
+
+- `Pattern`
+- `PatternDraft`
+- `PatternUpdate`
+- `DrillType`
+- `DrillPrompt`
+- `DrillAttempt`
+- `DrillEvaluationInput`
+- `DrillEvaluation`
+
+Add IPC surfaces:
+
+- `window.lexis.patterns`
+- `window.lexis.drills`
+- `window.lexis.ai.evaluateDrillAnswer`
+
+#### Task 7.4 — AI Drill Evaluation
+
+Implement non-streaming structured evaluation in `electron/services/ai.ts`.
+
+Input:
+
+- language
+- pattern text
+- prompt
+- expected answer, optional
+- user answer
+- native language
+
+Output:
+
+- score 0-100
+- verdict: `correct` | `needs_fix` | `incorrect`
+- corrected answer
+- concise feedback
+- actionable suggestions
+- short natural example sentences using the pattern
+- mistake types
+
+Important rubric:
+
+- Missing target pattern is a major issue even if grammar is acceptable
+- Slightly unnatural but understandable answers should be `needs_fix`
+- Store original user mistake; do not overwrite it with correction
+
+#### Task 7.5 — Pattern Builder MVP
+
+Create UI for "Mine as Pattern":
+
+- Pattern text input
+- Native meaning input
+- Explanation textarea
+- Example sentence from source
+- Deck selector
+- Tags
+- Save pattern
+
+Prefill from selected sentence/phrase. AI pattern suggestion can be added later; MVP can allow manual entry.
+
+#### Task 7.6 — Drill Session MVP
+
+Create a basic active-production screen:
+
+- Show pattern and prompt
+- User writes answer
+- Button: Check
+- Show score/verdict/correction/feedback
+- Button: Try Again
+- Button: Save Attempt
+- Button: Create Review Card
+
+Drill types for MVP:
+
+- free production implemented first
+- translation prompt flow planned next
+
+#### Task 7.7 — Review Card from Attempt
+
+Generate SRS card from saved attempt:
+
+Front:
+
+```text
+Use "{pattern_text}":
+{prompt}
+```
+
+Back:
+
+```text
+{corrected_answer}
+
+Your answer:
+{user_answer}
+
+Feedback:
+{feedback}
+```
+
+#### Task 7.8 — Tests
+
+Unit tests:
+
+- pattern CRUD
+- drill prompt CRUD
+- drill attempt persistence
+- review card generation from attempt
+- AI evaluation JSON parsing/fallback behavior
+
+### Sprint 7 Acceptance Tests
+
+- [x] User can mine selected sentence/phrase as a Pattern
+- [x] Pattern links back to source sentence/source media
+- [x] User can start a drill from a pattern
+- [x] User can submit an answer and receive structured correction
+- [x] Drill attempt is saved with original answer and corrected answer
+- [x] Saved attempt can generate an SRS card
+- [x] `npm run typecheck` — 0 errors
+- [x] `npm run test` — all pass
+
+---
+
+## Sprint 8 — Input Sources + End-to-End Mining
+
+### Sprint 8 Goal
+
+Plain text paste and web URL import support the full mining flow. E2E tests cover word, sentence, and pattern mining.
+
+### Sprint 8 Tasks
+
+#### Task 8.1 — Plain Text Paste Source
+
+New IPC `media:import-text` in `main.ts`:
+
+- Accept raw text + title + language
+- Split into sentences (period/question/exclamation boundaries, respecting CJK)
+- Insert into `media_sources` + `sentences` tables
+- Return `MediaSource`
+
+Update `ImportModal.tsx`: add "Paste Text" tab with textarea + title field.
+
+#### Task 8.2 — Web URL Source
+
+Wire up existing `electron/services/parsers/web.ts` to:
+
+- `media:import-url` IPC
+- Update `ImportModal.tsx`: "Web URL" tab with URL input
+- Use `@mozilla/readability` to extract article text
+
+#### Task 8.3 — Native Language Settings Finalization
+
+- Add "Native Language" segmented control: Tiếng Việt | English
+- Changing native language clears or invalidates `definition_translations`
+
+#### Task 8.4 — E2E Tests
+
+```typescript
+// tests/e2e/mining-workflow.spec.ts
+// 1. Launch app → import sample.srt
+// 2. Click sentence → click word → LookupPanel shows
+// 3. Wait for Vietnamese definition to appear
+// 4. Press Shift+A → CardBuilder opens with VI definition
+// 5. Ctrl+Enter → card saved
+// 6. Open review → card appears → rate Good → session advances
+// 7. Mine selected sentence as Pattern
+// 8. Start drill → submit answer → save attempt
+```
+
+### Sprint 8 Acceptance Tests
+
+- [ ] Plain text paste creates readable source in library
+- [ ] Web URL import extracts article (test with NHK Web Easy)
+- [ ] Settings: changing native language clears translation cache
+- [ ] E2E word mining passes
+- [ ] E2E pattern drill MVP passes
+
+---
+
+## Sprint 9 — Packaging + Polish
+
+### Sprint 9 Goal
+
+Shippable desktop installer after Sentence Mining + Pattern Drill MVP is stable.
+
+### Sprint 9 Tasks
+
+#### Task 9.1 — Packaging
+
+Configure `electron-builder.yml`:
 
 - macOS: `.dmg` (arm64 + x64 universal)
 - Windows: NSIS installer
@@ -535,28 +981,25 @@ Configure `electron-builder.yml` for:
 
 Verify: `npm run dist` → working installer on current platform.
 
-#### Task 6.5 — E2E Tests
+#### Task 9.2 — Window Polish
 
-```typescript
-// tests/e2e/mining-workflow.spec.ts
-// 1. Launch app
-// 2. Import sample.srt
-// 3. Click a sentence
-// 4. Click a word → LookupPanel shows
-// 5. Press A → CardBuilder opens
-// 6. Click "Add to Deck"
-// 7. Open Review session → card appears
-// 8. Rate card → session advances
-```
+- Window state persistence via `electron-window-state`
+- App icon in `buildResources/`
+- Onboarding modal on first launch (`firstLaunchDone` setting flag)
 
-### Sprint 6 Acceptance Tests
+#### Task 9.3 — Final Regression
 
-- [ ] Card browser shows all cards with correct SRS state
-- [ ] Editing a card updates front/back correctly
-- [ ] Stats reflect actual review history from review_log
-- [ ] Streak calculates correctly (no gaps = continues)
+- Existing cards/decks still load
+- Existing Sprint 6 rich card flow works
+- Pattern/drill tables migrate cleanly
+- Offline reader/dictionary/SRS works without AI key
+- AI-only features degrade gracefully without key
+
+### Sprint 9 Acceptance Tests
+
 - [ ] `npm run dist` produces working installer
 - [ ] Installed app loads in < 3 seconds
+- [ ] All unit tests pass
 - [ ] All e2e tests pass
 
 ---

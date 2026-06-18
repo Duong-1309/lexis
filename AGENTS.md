@@ -4,7 +4,7 @@ This is the primary instruction file for Codex. Read this entire file before doi
 
 ## Project Overview
 
-**Lexis** is a cross-platform desktop application built with Electron that combines sentence mining, dictionary lookup, local flashcard creation, and Anki-style SRS review into a single workflow. Users read foreign language content (subtitles, ebooks, web articles), highlight sentences, look up words, create cards, and review them inside Lexis — all without switching apps.
+**Lexis** is a cross-platform desktop application built with Electron for Sentence Mining + Pattern Drill + local SRS. Users read foreign language content (subtitles, ebooks, web articles), mine useful sentences, extract words/phrases/patterns, create cards, produce their own transformed sentences, receive correction, and review saved cards/attempts inside Lexis — all without switching apps.
 
 ## Tech Stack (Do Not Deviate)
 
@@ -167,14 +167,17 @@ FORVO_API_KEY=...               # Optional — falls back to Web Speech TTS
 
 ## Sprint Execution Order
 
-Implement features in this exact order. Do NOT skip ahead or implement out of order.
+Sprints 1–7 complete. Currently on Sprint 8.
 
-1. **Sprint 1**: Project scaffolding, DB setup, SRT parser, basic Reader UI
-2. **Sprint 2**: Dictionary engine (JMdict + CEDICT), LookupPanel, audio
-3. **Sprint 3**: Built-in SRS decks/cards, CardBuilder, hotkeys
-4. **Sprint 4**: Review session and deck picker
-5. **Sprint 5**: AI features and EPUB reader
-6. **Sprint 6**: Deck browser, stats dashboard, settings, packaging, polish
+1. **Sprint 1**: Project scaffolding, DB setup, SRT parser, basic Reader UI ✅
+2. **Sprint 2**: Dictionary engine (JMdict + CEDICT), LookupPanel, audio ✅
+3. **Sprint 3**: Built-in SRS decks/cards, CardBuilder, hotkeys ✅
+4. **Sprint 4**: Review session and deck picker ✅
+5. **Sprint 5**: AI features and EPUB reader ✅
+6. **Sprint 6**: Native language flow, rich cards, SM-2 fixes, deck browser, stats ✅
+7. **Sprint 7**: Pattern Drill foundation — patterns, active production, AI correction, saved attempts ✅
+8. **Sprint 8**: Plain text/web input sources + E2E mining/drill tests 🔄
+9. **Sprint 9**: Packaging, polish, final regression
 
 See `docs/IMPLEMENTATION_PLAN.md` for detailed task breakdown per sprint.
 
@@ -193,3 +196,8 @@ See `docs/IMPLEMENTATION_PLAN.md` for detailed task breakdown per sprint.
 - Lexis uses built-in decks/cards with SM-2 scheduling. There is no required AnkiConnect dependency in the v2 direction.
 - EPUB DRM files will NOT parse. Display a clear error message — do not attempt to strip DRM.
 - Audio files from Forvo are cached in `{userData}/audio-cache/`. This directory is NOT gitignored (it doesn't exist in the repo, it's created at runtime).
+- `UserSettings.nativeLanguage` defaults to `'vi'` (Vietnamese). Never hardcode 'vi' in components — always read from `window.lexis.settings.get()`. Full native-language settings/cache invalidation is tracked in Sprint 8.
+- `ai:translate-definition` is NON-STREAMING and CACHE-FIRST. Main process checks `definition_translations` table before calling AI. Do not call AI directly from renderer for translation.
+- Card rich fields (`nativeDefinition`, `partOfSpeech`, `levelInfo`, `audioWord`) are all optional — `buildDraft` renders gracefully without them. Never block card creation waiting for translation.
+- SM-2 `step_index`: 0=new, 1=1min step, 2=10min step, 3+=graduated (daily interval). Lapsed cards set `step_index=1`, NOT 0 — they re-enter relearning, not new card flow.
+- Product direction: Sentence is the primary mining unit. Pattern Drill is active production: prompt → user answer → AI correction → saved attempt → optional review card.

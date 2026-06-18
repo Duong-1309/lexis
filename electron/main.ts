@@ -12,7 +12,21 @@ import { parseASS } from './services/parsers/ass'
 import { parseEPUBChapters, loadEPUBChapter } from './services/parsers/epub'
 import { calculateNextReview } from './services/srs'
 import { getSettings, setSettings } from './services/settings'
-import type { IPCResult, MediaSource, Language, DraftCard, CardUpdate, ReviewRating } from '../src/types/index'
+import type {
+  IPCResult,
+  MediaSource,
+  Language,
+  NativeLanguage,
+  DraftCard,
+  CardUpdate,
+  ReviewRating,
+  PatternDraft,
+  PatternUpdate,
+  PatternFilters,
+  DrillPromptDraft,
+  DrillAttemptDraft,
+  DrillEvaluationInput,
+} from '../src/types/index'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -264,33 +278,89 @@ function setupIPCHandlers(): void {
     wrapResult(() => db.updateCardContent(id, updates)),
   )
 
+  // ─── patterns ───────────────────────────────────────────────────────────────
+  ipcMain.handle('patterns:create', (_event, draft: PatternDraft) =>
+    wrapResult(() => db.createPattern(draft)),
+  )
+  ipcMain.handle('patterns:update', (_event, id: number, updates: PatternUpdate) =>
+    wrapResult(() => db.updatePattern(id, updates)),
+  )
+  ipcMain.handle('patterns:list', (_event, filters?: PatternFilters) =>
+    wrapResult(() => db.listPatterns(filters ?? {})),
+  )
+  ipcMain.handle('patterns:get', (_event, id: number) =>
+    wrapResult(() => db.getPattern(id)),
+  )
+  ipcMain.handle('patterns:delete', (_event, id: number) =>
+    wrapResult(() => db.deletePattern(id)),
+  )
+  ipcMain.handle('patterns:is-duplicate', (_event, patternText: string, language: Language, excludeId?: number) =>
+    wrapResult(() => db.isDuplicatePattern(patternText, language, excludeId)),
+  )
+
+  // ─── drills ─────────────────────────────────────────────────────────────────
+  ipcMain.handle('drills:create-prompt', (_event, draft: DrillPromptDraft) =>
+    wrapResult(() => db.createDrillPrompt(draft)),
+  )
+  ipcMain.handle('drills:list-prompts', (_event, patternId: number) =>
+    wrapResult(() => db.listDrillPrompts(patternId)),
+  )
+  ipcMain.handle('drills:save-attempt', (_event, draft: DrillAttemptDraft) =>
+    wrapResult(() => db.saveDrillAttempt(draft)),
+  )
+  ipcMain.handle('drills:list-attempts', (_event, patternId: number) =>
+    wrapResult(() => db.listDrillAttempts(patternId)),
+  )
+  ipcMain.handle('drills:create-review-card', (_event, attemptId: number, deckId: number) =>
+    wrapResult(() => db.createReviewCardFromAttempt(attemptId, deckId)),
+  )
+
   // ─── ai ─────────────────────────────────────────────────────────────────────
   ipcMain.handle('ai:has-key', () => wrapResult(async () => aiService.hasApiKey()))
 
   ipcMain.handle(
-    'ai:explain-grammar',
-    (event, sentence: string, targetWord: string, language: Language) =>
+    'ai:translate-definition',
+    (_event, word: string, definition: string, targetLang: Language, nativeLang: NativeLanguage) =>
       wrapResult(async () => {
+        const cached = db.getCachedTranslation(word, targetLang, nativeLang)
+        if (cached) return cached
+        const translation = await aiService.translateDefinition(word, definition, targetLang, nativeLang)
+        db.cacheTranslation({ word, targetLang, nativeLang, translation })
+        return translation
+      }),
+  )
+
+  ipcMain.handle(
+    'ai:explain-grammar',
+    (event, sentence: string, targetWord: string, language: Language, nativeLanguage?: NativeLanguage) =>
+      wrapResult(async () => {
+        if (!aiService.hasApiKey()) throw new Error('No API key configured. Add your API key in Settings.')
         const streamId = randomUUID()
-        aiService.explainGrammar(sentence, targetWord, language, streamId, event.sender)
+        aiService.explainGrammar(sentence, targetWord, language, streamId, event.sender, nativeLanguage)
         return { streamId }
       }),
   )
 
-  ipcMain.handle('ai:translate', (event, sentence: string, language: Language) =>
+  ipcMain.handle('ai:translate', (event, sentence: string, language: Language, nativeLanguage?: NativeLanguage) =>
     wrapResult(async () => {
+      if (!aiService.hasApiKey()) throw new Error('No API key configured. Add your API key in Settings.')
       const streamId = randomUUID()
-      aiService.translateWithContext(sentence, language, streamId, event.sender)
+      aiService.translateWithContext(sentence, language, streamId, event.sender, nativeLanguage)
       return { streamId }
     }),
   )
 
-  ipcMain.handle('ai:examples', (event, word: string, language: Language, count?: number) =>
+  ipcMain.handle('ai:examples', (event, word: string, language: Language, count?: number, nativeLanguage?: NativeLanguage) =>
     wrapResult(async () => {
+      if (!aiService.hasApiKey()) throw new Error('No API key configured. Add your API key in Settings.')
       const streamId = randomUUID()
-      aiService.generateExamples(word, language, count ?? 3, streamId, event.sender)
+      aiService.generateExamples(word, language, count ?? 3, streamId, event.sender, nativeLanguage)
       return { streamId }
     }),
+  )
+
+  ipcMain.handle('ai:evaluate-drill-answer', (_event, input: DrillEvaluationInput) =>
+    wrapResult(() => aiService.evaluateDrillAnswer(input)),
   )
 
   ipcMain.handle('ai:cancel-stream', (_event, streamId: string) =>

@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useLookupStore } from '../store/lookupStore'
 import { useCardStore, buildDraft } from '../store/cardStore'
+import { useReaderStore } from '../store/readerStore'
 
 export function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
@@ -14,6 +15,7 @@ interface HotkeyOptions {
 
 export function useHotkeys({ enabled = true }: HotkeyOptions = {}) {
   const lookupStore = useLookupStore()
+  const readerStore = useReaderStore()
   const { open: cardBuilderOpen, openBuilder, closeBuilder } = useCardStore()
 
   useEffect(() => {
@@ -30,12 +32,17 @@ export function useHotkeys({ enabled = true }: HotkeyOptions = {}) {
 
       if (e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === 'a') {
         e.preventDefault()
-        const { word, language, results } = lookupStore
+        const { word, language, results, nativeDefinition } = lookupStore
+        const { currentSource, selectedSentence, selectedWord } = readerStore
         if (cardBuilderOpen || !word || !language || results.length === 0) return
 
+        const entry = results[0]
         const firstSense = results[0]?.senses[0]
         const definition = firstSense?.definitions.slice(0, 2).join('; ') ?? ''
-        const reading = results[0]?.readings[0]?.value
+        const reading = entry?.readings[0]?.value
+        const levelInfo = entry?.jlptLevel || entry?.hskLevel
+          ? { jlpt: entry.jlptLevel, hsk: entry.hskLevel }
+          : undefined
 
         openBuilder(
           buildDraft({
@@ -43,6 +50,13 @@ export function useHotkeys({ enabled = true }: HotkeyOptions = {}) {
             reading,
             definition,
             language,
+            nativeDefinition: nativeDefinition ?? undefined,
+            partOfSpeech: firstSense?.partOfSpeech[0],
+            levelInfo,
+            audioWord: word,
+            sourceSentence: selectedSentence?.content,
+            sourceHighlight: selectedWord ?? word,
+            sourceId: selectedSentence?.sourceId ?? currentSource?.id,
           }),
         )
         return
@@ -60,5 +74,5 @@ export function useHotkeys({ enabled = true }: HotkeyOptions = {}) {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [lookupStore, cardBuilderOpen, openBuilder, closeBuilder, enabled])
+  }, [lookupStore, readerStore, cardBuilderOpen, openBuilder, closeBuilder, enabled])
 }

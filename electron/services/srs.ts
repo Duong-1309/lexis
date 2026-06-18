@@ -1,4 +1,4 @@
-import type { Card, SRSResult, ReviewRating } from '../../src/types/index'
+import type { Card, CardState, SRSResult, ReviewRating } from '../../src/types/index'
 
 function todayPlusDays(days: number): string {
   const d = new Date()
@@ -6,38 +6,87 @@ function todayPlusDays(days: number): string {
   return d.toISOString().slice(0, 10)
 }
 
+function nowPlusMinutes(minutes: number): string {
+  const d = new Date()
+  d.setMinutes(d.getMinutes() + minutes)
+  return d.toISOString().slice(0, 19).replace('T', ' ')
+}
+
+function learningDelayMinutes(stepIndex: number): number {
+  return stepIndex >= 2 ? 10 : 1
+}
+
+// ±5% fuzz to prevent cards from piling up on the same day
+function fuzz(interval: number): number {
+  if (interval <= 1) return interval
+  const maxDelta = Math.max(1, Math.round(interval * 0.05))
+  const jitter = Math.floor(Math.random() * (maxDelta * 2 + 1)) - maxDelta
+  return Math.max(1, interval + jitter)
+}
+
 export function calculateNextReview(card: Card, rating: ReviewRating): SRSResult {
   let { interval, easeFactor, reps, lapses } = card
+  let stepIndex = card.stepIndex ?? 0
+  let dueDate: string | null = null
 
-  // Update ease factor (SM-2 formula)
-  easeFactor = easeFactor + (0.1 - (5 - rating) * (0.08 + (5 - rating) * 0.02))
-  if (easeFactor < 1.3) easeFactor = 1.3
+  // Backward-compat: treat as graduated if cardState=review regardless of stepIndex
+  const isGraduated = card.cardState === 'review' || stepIndex >= 3
 
-  if (rating === 1) {
-    // Again — reset
-    interval = 1
-    reps = 0
-    lapses += 1
-  } else if (rating === 2) {
-    // Hard — slow progression
-    interval = Math.max(1, Math.round(interval * 1.2))
-    reps = Math.max(0, reps - 1)
-  } else {
-    // Good (3) or Easy (4)
-    if (reps === 0) {
+  if (isGraduated) {
+    // SM-2 ease update for graduated cards
+    easeFactor = easeFactor + (0.1 - (5 - rating) * (0.08 + (5 - rating) * 0.02))
+    if (easeFactor < 1.3) easeFactor = 1.3
+
+    if (rating === 1) {
+      // Lapse: re-enter relearning at step 1 (not step 0 — avoids full new-card flow)
+      lapses += 1
+      stepIndex = 1
       interval = 1
-    } else if (reps === 1) {
-      interval = 6
+      dueDate = nowPlusMinutes(learningDelayMinutes(stepIndex))
+      // reps intentionally unchanged on lapse
+    } else if (rating === 2) {
+      // Hard: slow growth, reps unchanged (fix: was incorrectly decrementing reps)
+      interval = fuzz(Math.max(1, Math.round(interval * 1.2)))
     } else {
+      // Good (3) or Easy (4)
       interval = Math.round(interval * easeFactor)
+      if (rating === 4) interval = Math.round(interval * 1.3)
+      interval = fuzz(interval)
+      reps += 1
     }
-    if (rating === 4) {
-      interval = Math.round(interval * 1.3)
+  } else {
+    // Learning steps: stepIndex 0 → 1 → 2 → graduate (3)
+    if (rating === 1) {
+      // Again: restart learning
+      stepIndex = 0
+      interval = 1
+      dueDate = nowPlusMinutes(learningDelayMinutes(stepIndex))
+    } else if (rating === 4) {
+      // Easy: graduate immediately
+      stepIndex = 3
+      interval = 4
+      reps += 1
+    } else if (rating === 2) {
+      // Hard: stay at current step
+      interval = 1
+      dueDate = nowPlusMinutes(learningDelayMinutes(stepIndex))
+    } else {
+      // Good: advance one step
+      stepIndex += 1
+      if (stepIndex >= 3) {
+        // Graduated
+        interval = 1
+        reps += 1
+      } else {
+        interval = 1
+        dueDate = nowPlusMinutes(learningDelayMinutes(stepIndex))
+      }
     }
-    reps += 1
   }
 
-  const cardState = rating === 1 ? 'learning' : interval >= 21 ? 'review' : 'learning'
+  const cardState: CardState = stepIndex >= 3
+    ? (interval >= 21 ? 'review' : 'learning')
+    : 'learning'
 
   return {
     interval,
@@ -45,6 +94,7 @@ export function calculateNextReview(card: Card, rating: ReviewRating): SRSResult
     reps,
     lapses,
     cardState,
-    dueDate: todayPlusDays(interval),
+    stepIndex,
+    dueDate: dueDate ?? todayPlusDays(interval),
   }
 }

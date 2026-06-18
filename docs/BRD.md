@@ -1,5 +1,5 @@
 # Business Requirements Document (BRD)
-# Lexis — Sentence Mining & SRS Desktop App
+# Lexis — Sentence Mining, Pattern Drill & SRS Desktop App
 
 **Version:** 1.0  
 **Status:** Approved  
@@ -10,7 +10,16 @@
 
 ## 1. Executive Summary
 
-Lexis is a desktop application that eliminates the friction between consuming foreign language content and creating high-quality flashcards. The core insight is that the best cards come from real content the learner is already engaging with — but the current workflow of switching between a reader, dictionary, and review tool breaks immersion and takes 2–3 minutes per word. Lexis collapses this into a single application where the entire cycle — read, look up, build card, review — takes under 20 seconds to create and schedules reviews locally.
+Lexis is a desktop application for turning real input into active language practice. The core workflow is sentence mining plus pattern drill: users read or listen to foreign-language content, mine useful sentences, extract words/phrases/patterns, produce their own transformed sentences, receive correction, and save both cards and personal mistakes for later SRS review.
+
+The core insight is that passive flashcards are not enough. The learner should move from real input to active output quickly:
+
+```text
+read sentence -> mine word/sentence/pattern -> produce new sentence
+-> app checks and suggests fixes -> save attempt -> review later
+```
+
+See `docs/SENTENCE_MINING_PATTERN_DRILL.md` for the detailed workflow.
 
 ---
 
@@ -22,6 +31,8 @@ Lexis is a desktop application that eliminates the friction between consuming fo
 |-----------|--------|-----------|
 | Switching between 4+ apps per mining session | High context-switching cost | Every session |
 | Manual copy-paste of sentences into flashcards | ~45 seconds per card | Every card |
+| No structured way to turn a mined sentence into reusable pattern practice | Learner recognizes grammar but cannot produce it | Every study session |
+| No feedback loop for self-created sentences | Mistakes disappear instead of becoming review material | Daily |
 | Losing reading position when looking up words | Breaks immersion | Multiple times/session |
 | No de-duplication of mined words | Duplicate cards in review deck | Weekly |
 | No record of what media a word came from | Cards lack context | Every card |
@@ -45,6 +56,8 @@ A learner mining 20 words per day currently spends approximately:
 | BO-03 | Multi-language support | Languages supported at launch | JP, ZH, KR, EN, FR, ES |
 | BO-04 | Data locality | % of user data stored locally | 100% (except opt-in AI) |
 | BO-05 | Offline usability | Core features available offline | Reader + Dictionary + Local SRS |
+| BO-06 | Active production | % of mined patterns with at least one production attempt | > 60% |
+| BO-07 | Personal mistake review | Drill attempts saved and reviewable | 100% of checked attempts |
 
 ---
 
@@ -59,6 +72,9 @@ A learner mining 20 words per day currently spends approximately:
 - Word lookup on double-click/selection
 - Audio pronunciation (Forvo API + TTS fallback)
 - Local card creation with Basic and Cloze templates
+- Sentence cards and pattern drill cards
+- Pattern extraction from selected sentence/phrase
+- Active production drill: prompt → user answer → AI correction → saved attempt
 - Built-in decks, duplicate checks, and SM-2 scheduling
 - Offline review queue via local due cards
 - Hotkey-driven workflow (Shift+A to mine)
@@ -69,6 +85,7 @@ A learner mining 20 words per day currently spends approximately:
 - AI grammar explanation (Claude API — BYOK)
 - AI context-aware translation
 - AI-generated example sentences
+- AI drill evaluation and correction
 - Screenshot/image capture for cards
 - Mining streak and detailed analytics
 
@@ -160,7 +177,20 @@ A learner mining 20 words per day currently spends approximately:
 | FR-SRS06 | SM-2 scheduling | P1 | Rating updates due date, interval, ease, reps, and lapses |
 | FR-SRS07 | Review history | P2 | Each review writes an immutable review_log row |
 
-### 6.5 AI Module (v1.1)
+### 6.5 Pattern Drill Module
+
+| ID | Requirement | Priority | Acceptance Criteria |
+|----|-------------|----------|---------------------|
+| FR-PD01 | Mine sentence as pattern | P1 | Selected sentence/phrase can create a Pattern linked to source context |
+| FR-PD02 | Store reusable pattern | P1 | Pattern stores text, native meaning, explanation, language, examples |
+| FR-PD03 | Production prompt | P1 | App can show translation/transform/substitution/free-production prompt |
+| FR-PD04 | User answer capture | P1 | User answer is saved with prompt and pattern context |
+| FR-PD05 | AI correction | P1 | App returns verdict, corrected answer, concise feedback, and mistake types |
+| FR-PD06 | Save drill attempt | P1 | Prompt, user answer, correction, score, feedback, mistake types are persisted |
+| FR-PD07 | Create review card from attempt | P2 | Attempt can become a card showing old mistake and corrected answer |
+| FR-PD08 | Pattern drill history | P2 | User can view attempts grouped by pattern |
+
+### 6.6 AI Module (v1.1)
 
 | ID | Requirement | Priority | Acceptance Criteria |
 |----|-------------|----------|---------------------|

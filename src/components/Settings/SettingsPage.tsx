@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import type { AIProvider, UserSettings } from '../../types'
+import type { AIProvider, CardTemplate, UserSettings } from '../../types'
+import { COMMON_TIME_ZONES, DEFAULT_TIME_ZONE } from '../../utils/time'
 
 interface SettingsPageProps {
   onClose: () => void
@@ -25,6 +26,19 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 }
 
 type KeyStatus = 'idle' | 'testing' | 'ok' | 'fail'
+
+function parseStepInput(value: string): number[] {
+  const steps = value
+    .split(',')
+    .map((part) => Number(part.trim()))
+    .filter((step) => Number.isFinite(step) && step > 0)
+
+  return steps.length > 0 ? steps : [1, 10]
+}
+
+function formatStepInput(steps: number[]): string {
+  return steps.join(', ')
+}
 
 function ApiKeyField({
   label,
@@ -72,6 +86,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
   const [anthropicKey, setAnthropicKey] = useState('')
   const [openaiKey, setOpenaiKey] = useState('')
   const [forvoKey, setForvoKey] = useState('')
+  const [learningStepsInput, setLearningStepsInput] = useState('1, 10')
   const [anthropicStatus, setAnthropicStatus] = useState<KeyStatus>('idle')
   const [openaiStatus, setOpenaiStatus] = useState<KeyStatus>('idle')
   const [saving, setSaving] = useState(false)
@@ -84,6 +99,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
         setAnthropicKey(r.data.anthropicApiKey)
         setOpenaiKey(r.data.openaiApiKey)
         setForvoKey(r.data.forvoApiKey)
+        setLearningStepsInput(formatStepInput(r.data.scheduling.learningStepsMinutes))
       }
     })
   }, [])
@@ -97,13 +113,22 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
 
   const handleSave = async () => {
     if (!settings) return
+    const normalizedSettings: UserSettings = {
+      ...settings,
+      scheduling: {
+        ...settings.scheduling,
+        learningStepsMinutes: parseStepInput(learningStepsInput),
+      },
+    }
     setSaving(true)
     await window.lexis.settings.set({
-      ...settings,
+      ...normalizedSettings,
       anthropicApiKey: anthropicKey.trim(),
       openaiApiKey: openaiKey.trim(),
       forvoApiKey: forvoKey.trim(),
     })
+    setLocalSettings(normalizedSettings)
+    setLearningStepsInput(formatStepInput(normalizedSettings.scheduling.learningStepsMinutes))
     setSaving(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
@@ -118,6 +143,13 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
   }
 
   const setProvider = (p: AIProvider) => setLocalSettings({ ...settings, aiProvider: p })
+  const setScheduling = (updates: Partial<UserSettings['scheduling']>) =>
+    setLocalSettings({ ...settings, scheduling: { ...settings.scheduling, ...updates } })
+  const setCardSettings = (updates: Partial<UserSettings['cards']>) =>
+    setLocalSettings({ ...settings, cards: { ...settings.cards, ...updates } })
+  const timeZones = settings.timeZone && !COMMON_TIME_ZONES.includes(settings.timeZone)
+    ? [settings.timeZone, ...COMMON_TIME_ZONES]
+    : COMMON_TIME_ZONES
 
   return (
     <div
@@ -201,6 +233,105 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
               onChange={setForvoKey}
               onTest={() => {}}
             />
+          </Section>
+
+          {/* Reader */}
+          <Section title="Scheduling">
+            <Field label="Time Zone" hint="Used for due dates, learning steps, stats, and future card scheduling settings.">
+              <select
+                className="w-full px-3 py-2 bg-gray-800 border border-white/10 rounded-lg text-sm text-gray-100 focus:outline-none focus:border-blue-500/50"
+                value={settings.timeZone || DEFAULT_TIME_ZONE}
+                onChange={(e) => setLocalSettings({ ...settings, timeZone: e.target.value })}
+              >
+                {timeZones.map((zone) => (
+                  <option key={zone} value={zone}>
+                    {zone}
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            <Field label="Learning Steps" hint="Comma-separated minutes. Saved now; SRS wiring comes next.">
+              <input
+                className="w-full px-3 py-2 bg-gray-800 border border-white/10 rounded-lg text-sm text-gray-100 focus:outline-none focus:border-blue-500/50"
+                value={learningStepsInput}
+                onChange={(e) => setLearningStepsInput(e.target.value)}
+                onBlur={() => setScheduling({ learningStepsMinutes: parseStepInput(learningStepsInput) })}
+                placeholder="1, 10"
+              />
+            </Field>
+
+            <Field label="Daily Due Time" hint="Local time for future daily review cutoff behavior.">
+              <input
+                type="time"
+                className="w-full px-3 py-2 bg-gray-800 border border-white/10 rounded-lg text-sm text-gray-100 focus:outline-none focus:border-blue-500/50"
+                value={settings.scheduling.dailyDueTime}
+                onChange={(e) => setScheduling({ dailyDueTime: e.target.value })}
+              />
+            </Field>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="New Cards / Day">
+                <input
+                  type="number"
+                  min={0}
+                  max={999}
+                  className="w-full px-3 py-2 bg-gray-800 border border-white/10 rounded-lg text-sm text-gray-100 focus:outline-none focus:border-blue-500/50"
+                  value={settings.scheduling.newCardsPerDay}
+                  onChange={(e) => setScheduling({ newCardsPerDay: Number(e.target.value) })}
+                />
+              </Field>
+
+              <Field label="Reviews / Day">
+                <input
+                  type="number"
+                  min={0}
+                  max={9999}
+                  className="w-full px-3 py-2 bg-gray-800 border border-white/10 rounded-lg text-sm text-gray-100 focus:outline-none focus:border-blue-500/50"
+                  value={settings.scheduling.reviewsPerDay}
+                  onChange={(e) => setScheduling({ reviewsPerDay: Number(e.target.value) })}
+                />
+              </Field>
+            </div>
+          </Section>
+
+          <Section title="Cards">
+            <Field label="Default Template">
+              <select
+                className="w-full px-3 py-2 bg-gray-800 border border-white/10 rounded-lg text-sm text-gray-100 focus:outline-none focus:border-blue-500/50"
+                value={settings.cards.defaultTemplate}
+                onChange={(e) => setCardSettings({ defaultTemplate: e.target.value as CardTemplate })}
+              >
+                <option value="Basic">Basic</option>
+                <option value="Cloze">Cloze</option>
+              </select>
+            </Field>
+
+            <label className="flex items-start gap-3 rounded-lg border border-white/10 bg-gray-800/60 px-3 py-2">
+              <input
+                type="checkbox"
+                className="mt-0.5 accent-blue-500"
+                checked={settings.cards.showNativeDefinitionFirst}
+                onChange={(e) => setCardSettings({ showNativeDefinitionFirst: e.target.checked })}
+              />
+              <span>
+                <span className="block text-sm font-medium text-gray-300">Native definition first</span>
+                <span className="block text-xs text-gray-500">Use Vietnamese/native definition as the primary back-side answer.</span>
+              </span>
+            </label>
+
+            <label className="flex items-start gap-3 rounded-lg border border-white/10 bg-gray-800/60 px-3 py-2">
+              <input
+                type="checkbox"
+                className="mt-0.5 accent-blue-500"
+                checked={settings.cards.autoPlayAudio}
+                onChange={(e) => setCardSettings({ autoPlayAudio: e.target.checked })}
+              />
+              <span>
+                <span className="block text-sm font-medium text-gray-300">Auto-play audio in review</span>
+                <span className="block text-xs text-gray-500">Saved now; review playback wiring can use this next.</span>
+              </span>
+            </label>
           </Section>
 
           {/* Reader */}

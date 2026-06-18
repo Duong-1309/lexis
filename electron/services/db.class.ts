@@ -19,6 +19,17 @@ import type {
   DayStat,
   MiningStats,
   Language,
+  NativeLanguage,
+  Pattern,
+  PatternDraft,
+  PatternUpdate,
+  PatternFilters,
+  DrillPrompt,
+  DrillPromptDraft,
+  DrillAttempt,
+  DrillAttemptDraft,
+  DrillType,
+  DrillVerdict,
 } from '../../src/types/index'
 
 interface DbMediaSource {
@@ -84,6 +95,11 @@ interface DbCard {
   word: string | null
   reading: string | null
   language: string | null
+  native_definition: string | null
+  part_of_speech: string | null
+  level_info: string | null
+  audio_word: string | null
+  step_index: number
   source_sentence: string | null
   source_id: number | null
   due_date: string
@@ -110,6 +126,72 @@ interface DbReviewLog {
 interface DbDayStat {
   date: string
   count: number
+}
+
+interface DbPattern {
+  id: number
+  deck_id: number | null
+  language: string
+  pattern_text: string
+  meaning_native: string | null
+  explanation: string | null
+  example_sentence: string | null
+  source_sentence_id: number | null
+  source_id: number | null
+  tags_json: string
+  created_at: string
+  updated_at: string
+}
+
+interface DbDrillPrompt {
+  id: number
+  pattern_id: number
+  type: string
+  prompt_native: string | null
+  prompt_target: string | null
+  expected_answer: string | null
+  variables_json: string
+  created_at: string
+}
+
+interface DbDrillAttempt {
+  id: number
+  pattern_id: number
+  prompt_id: number | null
+  card_id: number | null
+  user_answer: string
+  corrected_answer: string | null
+  feedback: string | null
+  score: number | null
+  verdict: string | null
+  mistake_types_json: string
+  created_at: string
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function cleanPatternText(value: string): string {
+  return value
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^[\p{P}\p{S}\s]+|[\p{P}\p{S}\s]+$/gu, '')
+    .trim()
+}
+
+function normalizePatternKey(value: string): string {
+  return value
+    .normalize('NFKC')
+    .toLocaleLowerCase()
+    .replace(/[\p{P}\p{S}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 export class DatabaseService {
@@ -266,6 +348,84 @@ export class DatabaseService {
 
           CREATE INDEX IF NOT EXISTS idx_review_log_card ON review_log(card_id, reviewed_at DESC);
           CREATE INDEX IF NOT EXISTS idx_review_log_date ON review_log(reviewed_at DESC);
+        `,
+      },
+      {
+        version: 3,
+        sql: `
+          ALTER TABLE cards ADD COLUMN native_definition TEXT;
+          ALTER TABLE cards ADD COLUMN part_of_speech    TEXT;
+          ALTER TABLE cards ADD COLUMN level_info        TEXT;
+          ALTER TABLE cards ADD COLUMN audio_word        TEXT;
+          ALTER TABLE cards ADD COLUMN step_index        INTEGER NOT NULL DEFAULT 0;
+
+          CREATE TABLE IF NOT EXISTS definition_translations (
+            word        TEXT NOT NULL,
+            target_lang TEXT NOT NULL,
+            native_lang TEXT NOT NULL,
+            translation TEXT NOT NULL,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (word, target_lang, native_lang)
+          );
+        `,
+      },
+      {
+        version: 4,
+        sql: `
+          CREATE TABLE IF NOT EXISTS patterns (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            deck_id            INTEGER REFERENCES decks(id) ON DELETE SET NULL,
+            language           TEXT    NOT NULL,
+            pattern_text       TEXT    NOT NULL,
+            meaning_native     TEXT,
+            explanation        TEXT,
+            example_sentence   TEXT,
+            source_sentence_id INTEGER REFERENCES sentences(id) ON DELETE SET NULL,
+            source_id          INTEGER REFERENCES media_sources(id) ON DELETE SET NULL,
+            tags_json          TEXT    NOT NULL DEFAULT '[]',
+            created_at         TEXT    NOT NULL DEFAULT (datetime('now')),
+            updated_at         TEXT    NOT NULL DEFAULT (datetime('now'))
+          );
+
+          CREATE INDEX IF NOT EXISTS idx_patterns_deck ON patterns(deck_id);
+          CREATE INDEX IF NOT EXISTS idx_patterns_lang ON patterns(language);
+
+          CREATE TABLE IF NOT EXISTS drill_prompts (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            pattern_id      INTEGER NOT NULL REFERENCES patterns(id) ON DELETE CASCADE,
+            type            TEXT    NOT NULL CHECK(type IN (
+                              'translation',
+                              'transform',
+                              'substitution',
+                              'free_production',
+                              'cloze'
+                            )),
+            prompt_native   TEXT,
+            prompt_target   TEXT,
+            expected_answer TEXT,
+            variables_json  TEXT NOT NULL DEFAULT '{}',
+            created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+          );
+
+          CREATE INDEX IF NOT EXISTS idx_drill_prompts_pattern ON drill_prompts(pattern_id);
+
+          CREATE TABLE IF NOT EXISTS drill_attempts (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            pattern_id          INTEGER NOT NULL REFERENCES patterns(id) ON DELETE CASCADE,
+            prompt_id           INTEGER REFERENCES drill_prompts(id) ON DELETE SET NULL,
+            card_id             INTEGER REFERENCES cards(id) ON DELETE SET NULL,
+            user_answer         TEXT    NOT NULL,
+            corrected_answer    TEXT,
+            feedback            TEXT,
+            score               INTEGER CHECK(score BETWEEN 0 AND 100),
+            verdict             TEXT CHECK(verdict IN ('correct', 'needs_fix', 'incorrect')),
+            mistake_types_json  TEXT NOT NULL DEFAULT '[]',
+            created_at          TEXT NOT NULL DEFAULT (datetime('now'))
+          );
+
+          CREATE INDEX IF NOT EXISTS idx_drill_attempts_pattern
+            ON drill_attempts(pattern_id, created_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_drill_attempts_card ON drill_attempts(card_id);
         `,
       },
     ]
@@ -453,14 +613,25 @@ export class DatabaseService {
     return this.getDeckById(result.lastInsertRowid as number)!
   }
 
+  ensureDefaultDeck(): Deck {
+    this.assertInitialized()
+    const existing = this.db
+      .prepare("SELECT * FROM decks WHERE name = 'Default' ORDER BY id ASC LIMIT 1")
+      .get() as DbDeck | undefined
+    if (existing) return this.rowToDeck(existing)
+
+    return this.createDeck('Default', 'Default deck')
+  }
+
   getDecks(): Deck[] {
     this.assertInitialized()
+    this.ensureDefaultDeck()
     const rows = this.db
       .prepare(`
         SELECT
           d.*,
           COUNT(c.id) AS card_count,
-          SUM(CASE WHEN c.due_date <= date('now') AND c.card_state != 'suspended' THEN 1 ELSE 0 END) AS due_count,
+          SUM(CASE WHEN c.due_date <= datetime('now') AND c.card_state != 'suspended' THEN 1 ELSE 0 END) AS due_count,
           SUM(CASE WHEN c.card_state = 'new' THEN 1 ELSE 0 END) AS new_count
         FROM decks d
         LEFT JOIN cards c ON c.deck_id = d.id
@@ -503,20 +674,27 @@ export class DatabaseService {
 
   insertCard(draft: DraftCard): Card {
     this.assertInitialized()
+    const deck = this.getDeckById(draft.deckId) ?? this.ensureDefaultDeck()
     const result = this.db
       .prepare(`
         INSERT INTO cards
-          (deck_id, front_html, back_html, tags_json, word, reading, language, source_sentence, source_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (deck_id, front_html, back_html, tags_json, word, reading, language,
+           native_definition, part_of_speech, level_info, audio_word,
+           source_sentence, source_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
-        draft.deckId,
+        deck.id,
         draft.frontHtml,
         draft.backHtml,
         JSON.stringify(draft.tags),
         draft.word ?? null,
         draft.reading ?? null,
         draft.language ?? null,
+        draft.nativeDefinition ?? null,
+        draft.partOfSpeech ?? null,
+        draft.levelInfo ? JSON.stringify(draft.levelInfo) : null,
+        draft.audioWord ?? null,
         draft.sourceSentence ?? null,
         draft.sourceId ?? null,
       )
@@ -535,10 +713,10 @@ export class DatabaseService {
       .prepare(`
         UPDATE cards
         SET due_date = ?, interval = ?, ease_factor = ?, reps = ?, lapses = ?,
-            card_state = ?, last_reviewed = datetime('now')
+            card_state = ?, step_index = ?, last_reviewed = datetime('now')
         WHERE id = ?
       `)
-      .run(result.dueDate, result.interval, result.easeFactor, result.reps, result.lapses, result.cardState, id)
+      .run(result.dueDate, result.interval, result.easeFactor, result.reps, result.lapses, result.cardState, result.stepIndex, id)
   }
 
   getDueCards(deckId: number, limit = 100): Card[] {
@@ -546,7 +724,7 @@ export class DatabaseService {
     const rows = this.db
       .prepare(`
         SELECT * FROM cards
-        WHERE deck_id = ? AND card_state != 'suspended' AND due_date <= date('now')
+        WHERE deck_id = ? AND card_state != 'suspended' AND due_date <= datetime('now')
         ORDER BY card_state DESC, due_date ASC
         LIMIT ?
       `)
@@ -644,6 +822,280 @@ export class DatabaseService {
     return row.count > 0
   }
 
+  // ─── Patterns + Active Production Drills ────────────────────────────────────
+
+  createPattern(draft: PatternDraft): Pattern {
+    this.assertInitialized()
+    if (draft.deckId !== undefined && !this.getDeckById(draft.deckId)) {
+      throw new Error(`Deck ${draft.deckId} not found`)
+    }
+    const patternText = cleanPatternText(draft.patternText)
+    if (!patternText) throw new Error('Pattern is required')
+    const duplicate = this.findDuplicatePattern(patternText, draft.language)
+    if (duplicate) {
+      throw new Error(`Duplicate pattern already exists: "${duplicate.patternText}"`)
+    }
+    log.info('[LexisDebug] create-pattern', {
+      deckId: draft.deckId,
+      language: draft.language,
+      patternText,
+      meaningNative: draft.meaningNative,
+      explanation: draft.explanation,
+      exampleSentence: draft.exampleSentence,
+      sourceSentenceId: draft.sourceSentenceId,
+      sourceId: draft.sourceId,
+      tags: draft.tags,
+    })
+    const result = this.db
+      .prepare(`
+        INSERT INTO patterns (
+          deck_id, language, pattern_text, meaning_native, explanation,
+          example_sentence, source_sentence_id, source_id, tags_json
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        draft.deckId ?? null,
+        draft.language,
+        patternText,
+        draft.meaningNative ?? null,
+        draft.explanation ?? null,
+        draft.exampleSentence ?? null,
+        draft.sourceSentenceId ?? null,
+        draft.sourceId ?? null,
+        JSON.stringify(draft.tags),
+      )
+    return this.getPattern(result.lastInsertRowid as number)!
+  }
+
+  updatePattern(id: number, updates: PatternUpdate): void {
+    this.assertInitialized()
+    const current = this.getPattern(id)
+    if (!current) throw new Error(`Pattern ${id} not found`)
+    if (updates.deckId !== undefined && !this.getDeckById(updates.deckId)) {
+      throw new Error(`Deck ${updates.deckId} not found`)
+    }
+    const nextPatternText = updates.patternText !== undefined
+      ? cleanPatternText(updates.patternText)
+      : current.patternText
+    if (!nextPatternText) throw new Error('Pattern is required')
+    const duplicate = this.findDuplicatePattern(nextPatternText, updates.language ?? current.language, id)
+    if (duplicate) {
+      throw new Error(`Duplicate pattern already exists: "${duplicate.patternText}"`)
+    }
+
+    this.db
+      .prepare(`
+        UPDATE patterns
+        SET deck_id = ?,
+            language = ?,
+            pattern_text = ?,
+            meaning_native = ?,
+            explanation = ?,
+            example_sentence = ?,
+            source_sentence_id = ?,
+            source_id = ?,
+            tags_json = ?,
+            updated_at = datetime('now')
+        WHERE id = ?
+      `)
+      .run(
+        updates.deckId ?? current.deckId ?? null,
+        updates.language ?? current.language,
+        nextPatternText,
+        updates.meaningNative ?? current.meaningNative ?? null,
+        updates.explanation ?? current.explanation ?? null,
+        updates.exampleSentence ?? current.exampleSentence ?? null,
+        updates.sourceSentenceId ?? current.sourceSentenceId ?? null,
+        updates.sourceId ?? current.sourceId ?? null,
+        JSON.stringify(updates.tags ?? current.tags),
+        id,
+      )
+  }
+
+  getPattern(id: number): Pattern | null {
+    this.assertInitialized()
+    const row = this.db.prepare('SELECT * FROM patterns WHERE id = ?').get(id) as DbPattern | undefined
+    return row ? this.rowToPattern(row) : null
+  }
+
+  listPatterns(filters: PatternFilters = {}): Pattern[] {
+    this.assertInitialized()
+    const conditions: string[] = []
+    const params: Array<string | number> = []
+
+    if (filters.deckId !== undefined) {
+      conditions.push('deck_id = ?')
+      params.push(filters.deckId)
+    }
+    if (filters.language !== undefined) {
+      conditions.push('language = ?')
+      params.push(filters.language)
+    }
+    if (filters.query?.trim()) {
+      conditions.push(`(
+        lower(pattern_text) LIKE ?
+        OR lower(COALESCE(meaning_native, '')) LIKE ?
+        OR lower(COALESCE(explanation, '')) LIKE ?
+      )`)
+      const query = `%${filters.query.trim().toLowerCase()}%`
+      params.push(query, query, query)
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+    const rows = this.db
+      .prepare(`SELECT * FROM patterns ${where} ORDER BY updated_at DESC, created_at DESC`)
+      .all(...params) as DbPattern[]
+    return rows.map(this.rowToPattern)
+  }
+
+  isDuplicatePattern(patternText: string, language: Language, excludeId?: number): boolean {
+    this.assertInitialized()
+    return this.findDuplicatePattern(patternText, language, excludeId) !== null
+  }
+
+  private findDuplicatePattern(patternText: string, language: Language, excludeId?: number): Pattern | null {
+    const key = normalizePatternKey(patternText)
+    if (!key) return null
+    const rows = this.db
+      .prepare('SELECT * FROM patterns WHERE language = ?')
+      .all(language) as DbPattern[]
+    const duplicate = rows.find((row) =>
+      row.id !== excludeId && normalizePatternKey(row.pattern_text) === key,
+    )
+    return duplicate ? this.rowToPattern(duplicate) : null
+  }
+
+  deletePattern(id: number): void {
+    this.assertInitialized()
+    this.db.prepare('DELETE FROM patterns WHERE id = ?').run(id)
+  }
+
+  createDrillPrompt(draft: DrillPromptDraft): DrillPrompt {
+    this.assertInitialized()
+    if (!this.getPattern(draft.patternId)) throw new Error(`Pattern ${draft.patternId} not found`)
+    const result = this.db
+      .prepare(`
+        INSERT INTO drill_prompts (
+          pattern_id, type, prompt_native, prompt_target, expected_answer, variables_json
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        draft.patternId,
+        draft.type,
+        draft.promptNative ?? null,
+        draft.promptTarget ?? null,
+        draft.expectedAnswer ?? null,
+        JSON.stringify(draft.variables ?? {}),
+      )
+    return this.getDrillPrompt(result.lastInsertRowid as number)!
+  }
+
+  getDrillPrompt(id: number): DrillPrompt | null {
+    this.assertInitialized()
+    const row = this.db
+      .prepare('SELECT * FROM drill_prompts WHERE id = ?')
+      .get(id) as DbDrillPrompt | undefined
+    return row ? this.rowToDrillPrompt(row) : null
+  }
+
+  listDrillPrompts(patternId: number): DrillPrompt[] {
+    this.assertInitialized()
+    const rows = this.db
+      .prepare('SELECT * FROM drill_prompts WHERE pattern_id = ? ORDER BY created_at DESC')
+      .all(patternId) as DbDrillPrompt[]
+    return rows.map(this.rowToDrillPrompt)
+  }
+
+  saveDrillAttempt(draft: DrillAttemptDraft): DrillAttempt {
+    this.assertInitialized()
+    if (!this.getPattern(draft.patternId)) throw new Error(`Pattern ${draft.patternId} not found`)
+    if (draft.promptId !== undefined && !this.getDrillPrompt(draft.promptId)) {
+      throw new Error(`Drill prompt ${draft.promptId} not found`)
+    }
+    if (draft.cardId !== undefined && !this.getCard(draft.cardId)) {
+      throw new Error(`Card ${draft.cardId} not found`)
+    }
+
+    const result = this.db
+      .prepare(`
+        INSERT INTO drill_attempts (
+          pattern_id, prompt_id, card_id, user_answer, corrected_answer,
+          feedback, score, verdict, mistake_types_json
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        draft.patternId,
+        draft.promptId ?? null,
+        draft.cardId ?? null,
+        draft.userAnswer,
+        draft.correctedAnswer ?? null,
+        draft.feedback ?? null,
+        draft.score ?? null,
+        draft.verdict ?? null,
+        JSON.stringify(draft.mistakeTypes ?? []),
+      )
+    return this.getDrillAttempt(result.lastInsertRowid as number)!
+  }
+
+  getDrillAttempt(id: number): DrillAttempt | null {
+    this.assertInitialized()
+    const row = this.db
+      .prepare('SELECT * FROM drill_attempts WHERE id = ?')
+      .get(id) as DbDrillAttempt | undefined
+    return row ? this.rowToDrillAttempt(row) : null
+  }
+
+  listDrillAttempts(patternId: number): DrillAttempt[] {
+    this.assertInitialized()
+    const rows = this.db
+      .prepare('SELECT * FROM drill_attempts WHERE pattern_id = ? ORDER BY created_at DESC')
+      .all(patternId) as DbDrillAttempt[]
+    return rows.map(this.rowToDrillAttempt)
+  }
+
+  createReviewCardFromAttempt(attemptId: number, deckId: number): Card {
+    this.assertInitialized()
+    const attempt = this.getDrillAttempt(attemptId)
+    if (!attempt) throw new Error(`Drill attempt ${attemptId} not found`)
+    const pattern = this.getPattern(attempt.patternId)
+    if (!pattern) throw new Error(`Pattern ${attempt.patternId} not found`)
+    if (!this.getDeckById(deckId)) throw new Error(`Deck ${deckId} not found`)
+
+    const prompt = attempt.promptId ? this.getDrillPrompt(attempt.promptId) : null
+    const promptText = prompt?.promptNative ?? prompt?.promptTarget ?? pattern.exampleSentence ?? pattern.patternText
+    const corrected = attempt.correctedAnswer ?? attempt.userAnswer
+
+    const card = this.insertCard({
+      deckId,
+      template: 'DrillAttempt',
+      frontHtml: [
+        '<div style="color:#60a5fa;font-size:0.8em;font-weight:600;text-transform:uppercase;letter-spacing:0.04em">Pattern Drill</div>',
+        `<div><strong>Your sentence:</strong><br>${escapeHtml(attempt.userAnswer)}</div>`,
+        `<div style="color:#9ca3af;font-size:0.9em"><strong>Pattern:</strong> ${escapeHtml(pattern.patternText)}</div>`,
+      ].join('<br>'),
+      backHtml: [
+        `<div><strong>Corrected:</strong><br>${escapeHtml(corrected)}</div>`,
+        attempt.feedback ? `<div><strong>Feedback:</strong><br>${escapeHtml(attempt.feedback).replace(/\n/g, '<br>')}</div>` : '',
+        pattern.exampleSentence && pattern.exampleSentence !== attempt.userAnswer
+          ? `<div style="color:#9ca3af;font-size:0.9em"><strong>Source sentence:</strong><br>${escapeHtml(pattern.exampleSentence)}</div>`
+          : '',
+        `<div style="color:#6b7280;font-size:0.85em"><strong>Task:</strong> ${escapeHtml(promptText)}</div>`,
+      ].filter(Boolean).join('<br><br>'),
+      tags: ['drill', pattern.language, ...pattern.tags],
+      word: attempt.userAnswer,
+      language: pattern.language,
+      nativeDefinition: pattern.meaningNative,
+      sourceSentence: pattern.exampleSentence,
+      sourceId: pattern.sourceId,
+    })
+
+    this.db.prepare('UPDATE drill_attempts SET card_id = ? WHERE id = ?').run(card.id, attemptId)
+    return card
+  }
+
   // ─── Review Log ───────────────────────────────────────────────────────────────
 
   logReview(entry: Omit<ReviewLog, 'id' | 'reviewedAt'>): void {
@@ -719,7 +1171,7 @@ export class DatabaseService {
   getDueToday(): number {
     this.assertInitialized()
     const row = this.db
-      .prepare("SELECT COUNT(*) as count FROM cards WHERE due_date <= date('now') AND card_state != 'suspended'")
+      .prepare("SELECT COUNT(*) as count FROM cards WHERE due_date <= datetime('now') AND card_state != 'suspended'")
       .get() as { count: number }
     return row.count
   }
@@ -931,6 +1383,13 @@ export class DatabaseService {
       word: row.word ?? undefined,
       reading: row.reading ?? undefined,
       language: row.language as Language | undefined,
+      nativeDefinition: row.native_definition ?? undefined,
+      partOfSpeech: row.part_of_speech ?? undefined,
+      levelInfo: row.level_info
+        ? (JSON.parse(row.level_info) as { jlpt?: number; hsk?: number })
+        : undefined,
+      audioWord: row.audio_word ?? undefined,
+      stepIndex: row.step_index,
       sourceSentence: row.source_sentence ?? undefined,
       sourceId: row.source_id ?? undefined,
       dueDate: row.due_date,
@@ -942,6 +1401,75 @@ export class DatabaseService {
       createdAt: row.created_at,
       lastReviewed: row.last_reviewed ?? undefined,
     }
+  }
+
+  private rowToPattern(row: DbPattern): Pattern {
+    return {
+      id: row.id,
+      deckId: row.deck_id ?? undefined,
+      language: row.language as Language,
+      patternText: row.pattern_text,
+      meaningNative: row.meaning_native ?? undefined,
+      explanation: row.explanation ?? undefined,
+      exampleSentence: row.example_sentence ?? undefined,
+      sourceSentenceId: row.source_sentence_id ?? undefined,
+      sourceId: row.source_id ?? undefined,
+      tags: JSON.parse(row.tags_json) as string[],
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }
+  }
+
+  private rowToDrillPrompt(row: DbDrillPrompt): DrillPrompt {
+    return {
+      id: row.id,
+      patternId: row.pattern_id,
+      type: row.type as DrillType,
+      promptNative: row.prompt_native ?? undefined,
+      promptTarget: row.prompt_target ?? undefined,
+      expectedAnswer: row.expected_answer ?? undefined,
+      variables: JSON.parse(row.variables_json) as Record<string, string>,
+      createdAt: row.created_at,
+    }
+  }
+
+  private rowToDrillAttempt(row: DbDrillAttempt): DrillAttempt {
+    return {
+      id: row.id,
+      patternId: row.pattern_id,
+      promptId: row.prompt_id ?? undefined,
+      cardId: row.card_id ?? undefined,
+      userAnswer: row.user_answer,
+      correctedAnswer: row.corrected_answer ?? undefined,
+      feedback: row.feedback ?? undefined,
+      score: row.score ?? undefined,
+      verdict: row.verdict ? row.verdict as DrillVerdict : undefined,
+      mistakeTypes: JSON.parse(row.mistake_types_json) as string[],
+      createdAt: row.created_at,
+    }
+  }
+
+  getCachedTranslation(word: string, targetLang: Language, nativeLang: NativeLanguage): string | null {
+    this.assertInitialized()
+    const row = this.db
+      .prepare('SELECT translation FROM definition_translations WHERE word = ? AND target_lang = ? AND native_lang = ?')
+      .get(word, targetLang, nativeLang) as { translation: string } | undefined
+    return row?.translation ?? null
+  }
+
+  cacheTranslation(entry: {
+    word: string
+    targetLang: Language
+    nativeLang: NativeLanguage
+    translation: string
+  }): void {
+    this.assertInitialized()
+    this.db
+      .prepare(`
+        INSERT OR REPLACE INTO definition_translations (word, target_lang, native_lang, translation)
+        VALUES (?, ?, ?, ?)
+      `)
+      .run(entry.word, entry.targetLang, entry.nativeLang, entry.translation)
   }
 }
 

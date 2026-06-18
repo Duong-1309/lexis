@@ -23,6 +23,27 @@ function splitTags(value: string): string[] {
   return value.split(',').map((tag) => tag.trim()).filter(Boolean)
 }
 
+function htmlToText(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+}
+
+function textToHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/\n/g, '<br>')
+}
+
 function defaultBack(word: string, reading: string): string {
   return [reading, word].filter(Boolean).join(' — ')
 }
@@ -194,10 +215,10 @@ export function CardEditModal({ card, decks, initialDeckId, onCreate, onSave, on
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1">Back</label>
             <textarea
-              value={back}
-              onChange={(e) => setBack(e.target.value)}
+              value={htmlToText(back)}
+              onChange={(e) => setBack(textToHtml(e.target.value))}
               rows={5}
-              className="w-full bg-gray-800 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 font-mono resize-none focus:outline-none focus:border-blue-500"
+              className="w-full bg-gray-800 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 resize-none focus:outline-none focus:border-blue-500"
               placeholder="Back of card"
             />
           </div>

@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
   Language,
+  NativeLanguage,
   MediaSource,
   Sentence,
   EPUBChapter,
@@ -14,6 +15,12 @@ import type {
   CardUpdate,
   SRSResult,
   ReviewRating,
+  PatternDraft,
+  PatternUpdate,
+  PatternFilters,
+  DrillPromptDraft,
+  DrillAttemptDraft,
+  DrillEvaluationInput,
   MiningStats,
   DayStat,
   UserSettings,
@@ -78,14 +85,42 @@ const lexisAPI: LexisAPI = {
       ipcRenderer.invoke('cards:update', id, updates),
   },
 
+  patterns: {
+    create: (draft: PatternDraft) => ipcRenderer.invoke('patterns:create', draft),
+    update: (id: number, updates: PatternUpdate) =>
+      ipcRenderer.invoke('patterns:update', id, updates),
+    list: (filters?: PatternFilters) => ipcRenderer.invoke('patterns:list', filters),
+    get: (id: number) => ipcRenderer.invoke('patterns:get', id),
+    delete: (id: number) => ipcRenderer.invoke('patterns:delete', id),
+    isDuplicate: (patternText: string, language: Language, excludeId?: number) =>
+      ipcRenderer.invoke('patterns:is-duplicate', patternText, language, excludeId),
+  },
+
+  drills: {
+    createPrompt: (draft: DrillPromptDraft) =>
+      ipcRenderer.invoke('drills:create-prompt', draft),
+    listPrompts: (patternId: number) =>
+      ipcRenderer.invoke('drills:list-prompts', patternId),
+    saveAttempt: (draft: DrillAttemptDraft) =>
+      ipcRenderer.invoke('drills:save-attempt', draft),
+    listAttempts: (patternId: number) =>
+      ipcRenderer.invoke('drills:list-attempts', patternId),
+    createReviewCard: (attemptId: number, deckId: number) =>
+      ipcRenderer.invoke('drills:create-review-card', attemptId, deckId),
+  },
+
   ai: {
     hasApiKey: () => ipcRenderer.invoke('ai:has-key'),
-    explainGrammar: (sentence, targetWord, language) =>
-      ipcRenderer.invoke('ai:explain-grammar', sentence, targetWord, language),
-    translateWithContext: (sentence, targetLanguage) =>
-      ipcRenderer.invoke('ai:translate', sentence, targetLanguage),
-    generateExamples: (word, language, count) =>
-      ipcRenderer.invoke('ai:examples', word, language, count),
+    translateDefinition: (word: string, definition: string, targetLang: Language, nativeLang: NativeLanguage) =>
+      ipcRenderer.invoke('ai:translate-definition', word, definition, targetLang, nativeLang),
+    explainGrammar: (sentence, targetWord, language, nativeLanguage) =>
+      ipcRenderer.invoke('ai:explain-grammar', sentence, targetWord, language, nativeLanguage),
+    translateWithContext: (sentence, targetLanguage, nativeLanguage) =>
+      ipcRenderer.invoke('ai:translate', sentence, targetLanguage, nativeLanguage),
+    generateExamples: (word, language, count, nativeLanguage) =>
+      ipcRenderer.invoke('ai:examples', word, language, count, nativeLanguage),
+    evaluateDrillAnswer: (input: DrillEvaluationInput) =>
+      ipcRenderer.invoke('ai:evaluate-drill-answer', input),
     cancelStream: (streamId) => ipcRenderer.invoke('ai:cancel-stream', streamId),
     onStreamChunk: (callback) => {
       ipcRenderer.on('ai:stream-chunk', (_event, streamId: string, chunk: string) =>

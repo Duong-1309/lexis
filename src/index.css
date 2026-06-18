@@ -40,6 +40,14 @@ body,
   border-radius: 2px;
 }
 
+/* Sentences already mined as patterns — stronger highlight than word underline */
+.epub-mined-sentence {
+  background: rgba(59, 130, 246, 0.18);
+  border-bottom: 2px solid #93c5fd; /* blue-300 */
+  border-radius: 3px;
+  padding: 0 2px;
+}
+
 /* Custom scrollbar for dark theme */
 ::-webkit-scrollbar {
   width: 6px;

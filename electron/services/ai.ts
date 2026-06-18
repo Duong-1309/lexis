@@ -1,12 +1,24 @@
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
-import type { Language, AIProvider } from '../../src/types/index'
+import type {
+  Language,
+  NativeLanguage,
+  AIProvider,
+  DrillEvaluation,
+  DrillEvaluationInput,
+} from '../../src/types/index'
 import log from 'electron-log'
 import type { WebContents } from 'electron'
 
 const LANG_NAMES: Record<Language, string> = {
   ja: 'Japanese', zh: 'Chinese', ko: 'Korean',
   en: 'English', fr: 'French', es: 'Spanish',
+}
+
+function isSentenceLike(text: string): boolean {
+  const trimmed = text.trim()
+  const wordCount = trimmed.split(/\s+/).filter(Boolean).length
+  return /[.!?。！？]$/.test(trimmed) || wordCount > 5
 }
 
 export class AIService {
@@ -50,36 +62,164 @@ export class AIService {
     }
   }
 
-  explainGrammar(sentence: string, targetWord: string, language: Language, streamId: string, sender: WebContents): void {
+  explainGrammar(
+    sentence: string,
+    targetWord: string,
+    language: Language,
+    streamId: string,
+    sender: WebContents,
+    nativeLanguage?: NativeLanguage,
+  ): void {
     const lang = LANG_NAMES[language] ?? language
+    const nativeName = nativeLanguage === 'vi' ? 'Vietnamese' : 'English'
+    const isWholeSentence = sentence.trim() === targetWord.trim()
+    const unit = isSentenceLike(sentence) ? 'sentence' : 'word/phrase'
     void this.runStream(
-      `You are a ${lang} language teacher. Be concise and practical.`,
-      `Explain the grammar of "${targetWord}" in this sentence:\n\n"${sentence}"\n\nCover: grammatical form, function in the sentence, and one key learning point. Be brief.`,
+      `You are a ${lang} language teacher. Explain in ${nativeName}. Be concise and practical.`,
+      isWholeSentence
+        ? `Explain this ${lang} ${unit}:\n\n"${sentence}"\n\nCover: meaning, structure, important chunks/patterns, and one key learning point.`
+        : `Explain the grammar of "${targetWord}" in this sentence:\n\n"${sentence}"\n\nCover: grammatical form, function in the sentence, and one key learning point.`,
       streamId, sender,
     )
   }
 
-  translateWithContext(sentence: string, language: Language, streamId: string, sender: WebContents): void {
+  translateWithContext(
+    sentence: string,
+    language: Language,
+    streamId: string,
+    sender: WebContents,
+    nativeLanguage?: NativeLanguage,
+  ): void {
     const lang = LANG_NAMES[language] ?? language
+    const nativeName = nativeLanguage === 'vi' ? 'Vietnamese' : 'English'
+    const unit = isSentenceLike(sentence) ? 'sentence' : 'word/phrase'
     void this.runStream(
       `You are a skilled ${lang} translator. Provide natural, accurate translations.`,
-      `Translate this ${lang} sentence to English and note any cultural nuances or idioms:\n\n"${sentence}"`,
+      `Translate this ${lang} ${unit} to ${nativeName}. Return the translation first, on its own line. Then optionally add one short note about nuance or idiom:\n\n"${sentence}"`,
       streamId, sender,
     )
   }
 
-  generateExamples(word: string, language: Language, count: number = 3, streamId: string, sender: WebContents): void {
+  generateExamples(
+    word: string,
+    language: Language,
+    count: number = 3,
+    streamId: string,
+    sender: WebContents,
+    nativeLanguage?: NativeLanguage,
+  ): void {
     const lang = LANG_NAMES[language] ?? language
+    const nativeName = nativeLanguage === 'vi' ? 'Vietnamese' : 'English'
+    const unit = isSentenceLike(word) ? 'pattern/sentence' : 'word/phrase'
     void this.runStream(
       `You are a ${lang} language teacher creating example sentences for vocabulary study.`,
-      `Generate ${count} natural example sentences using "${word}" in ${lang}. For each, provide the ${lang} sentence and its English translation. Format as a numbered list.`,
+      `Generate ${count} natural ${lang} example sentences using this ${unit}: "${word}". For each, provide the ${lang} sentence and its ${nativeName} translation. Format as a numbered list.`,
       streamId, sender,
     )
+  }
+
+  async translateDefinition(
+    word: string,
+    definition: string,
+    targetLang: Language,
+    nativeLang: NativeLanguage,
+  ): Promise<string> {
+    if (!this.hasApiKey()) throw new Error('No API key configured')
+    const langName = LANG_NAMES[targetLang] ?? targetLang
+    const nativeName = nativeLang === 'vi' ? 'Vietnamese' : 'English'
+    const prompt = `Translate this ${langName} dictionary definition to ${nativeName}. Word: "${word}". Definition: "${definition}". Return only the translation, concise, no explanation.`
+
+    if (this.provider === 'anthropic') {
+      const response = await this.anthropicClient!.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 150,
+        messages: [{ role: 'user', content: prompt }],
+      })
+      const block = response.content[0]
+      if (block.type !== 'text') throw new Error('Unexpected response type')
+      return block.text.trim()
+    } else {
+      const response = await this.openaiClient!.chat.completions.create({
+        model: 'gpt-4o-mini',
+        max_tokens: 150,
+        messages: [{ role: 'user', content: prompt }],
+      })
+      return response.choices[0]?.message?.content?.trim() ?? ''
+    }
+  }
+
+  async evaluateDrillAnswer(input: DrillEvaluationInput): Promise<DrillEvaluation> {
+    if (!this.hasApiKey()) throw new Error('No API key configured')
+    const langName = LANG_NAMES[input.language] ?? input.language
+    const nativeName = input.nativeLanguage === 'vi' ? 'Vietnamese' : 'English'
+    const prompt = [
+      `Evaluate this ${langName} pattern drill answer for a ${nativeName}-speaking learner.`,
+      '',
+      `Pattern: ${input.patternText}`,
+      `Prompt: ${input.prompt}`,
+      input.expectedAnswer ? `Expected answer: ${input.expectedAnswer}` : '',
+      `User answer: ${input.userAnswer}`,
+      '',
+      'Return strict JSON only with this shape:',
+      '{"score":number,"verdict":"correct|needs_fix|incorrect","correctedAnswer":"...","feedback":"...","suggestions":["..."],"examples":["..."],"mistakeTypes":["pattern|verb_form|word_order|preposition|tense|meaning|naturalness|spelling"]}',
+      '',
+      'Rules: missing the target pattern is a major issue; preserve acceptable meaning; keep feedback concise.',
+      'Suggestions must be actionable tips in the learner native language. Examples must be 2 short natural target-language sentences using the pattern.',
+    ].filter(Boolean).join('\n')
+
+    const text = this.provider === 'anthropic'
+      ? await this.completeAnthropic(prompt, 800)
+      : await this.completeOpenAI(prompt, 800)
+    return this.parseDrillEvaluation(text)
   }
 
   cancelStream(streamId: string): void {
     const ctrl = this.activeStreams.get(streamId)
     if (ctrl) { ctrl.abort(); this.activeStreams.delete(streamId) }
+  }
+
+  private async completeAnthropic(prompt: string, maxTokens: number): Promise<string> {
+    const response = await this.anthropicClient!.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: maxTokens,
+      messages: [{ role: 'user', content: prompt }],
+    })
+    const block = response.content[0]
+    if (block.type !== 'text') throw new Error('Unexpected response type')
+    return block.text.trim()
+  }
+
+  private async completeOpenAI(prompt: string, maxTokens: number): Promise<string> {
+    const response = await this.openaiClient!.chat.completions.create({
+      model: 'gpt-4o-mini',
+      max_tokens: maxTokens,
+      messages: [{ role: 'user', content: prompt }],
+    })
+    return response.choices[0]?.message?.content?.trim() ?? ''
+  }
+
+  private parseDrillEvaluation(text: string): DrillEvaluation {
+    const jsonText = text.match(/\{[\s\S]*\}/)?.[0] ?? text
+    const parsed = JSON.parse(jsonText) as Partial<DrillEvaluation>
+    const verdict = parsed.verdict === 'correct' || parsed.verdict === 'needs_fix' || parsed.verdict === 'incorrect'
+      ? parsed.verdict
+      : 'needs_fix'
+
+    return {
+      score: Math.max(0, Math.min(100, Number(parsed.score ?? 0))),
+      verdict,
+      correctedAnswer: String(parsed.correctedAnswer ?? ''),
+      feedback: String(parsed.feedback ?? ''),
+      suggestions: Array.isArray(parsed.suggestions)
+        ? parsed.suggestions.map(String).filter(Boolean)
+        : [],
+      examples: Array.isArray(parsed.examples)
+        ? parsed.examples.map(String).filter(Boolean)
+        : [],
+      mistakeTypes: Array.isArray(parsed.mistakeTypes)
+        ? parsed.mistakeTypes.map(String)
+        : [],
+    }
   }
 
   private async runStream(system: string, userMessage: string, streamId: string, sender: WebContents): Promise<void> {

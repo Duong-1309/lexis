@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Card, CardState, Deck, DraftCard, Language, CardUpdate } from '../../types'
 import { isTypingTarget } from '../../hooks/useHotkeys'
 import { CardEditModal } from './CardEditModal'
+import { DEFAULT_TIME_ZONE, formatDueDate } from '../../utils/time'
 
 interface Props {
   onClose: () => void
@@ -41,6 +42,30 @@ type ConfirmDialog =
 
 function selectedIds(selected: Set<number>): number[] {
   return [...selected]
+}
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+function drillCardTitle(card: Card): string | null {
+  if (!card.tags.includes('drill')) return null
+  const plainFront = stripHtml(card.frontHtml)
+  const match = plainFront.match(/Your sentence:\s*([\s\S]*?)(?:\n\s*Pattern:|\n{2,}|$)/i)
+  return match?.[1]?.trim() || card.word || null
+}
+
+function cardDisplayTitle(card: Card): string {
+  return drillCardTitle(card) ?? card.word ?? (stripHtml(card.frontHtml) || '—')
 }
 
 function DeckNameModal({
@@ -179,6 +204,7 @@ export function DeckBrowser({ onClose }: Props) {
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialog | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [timeZone, setTimeZone] = useState(DEFAULT_TIME_ZONE)
   const searchInputRef = useRef<HTMLInputElement | null>(null)
 
   const selectedDeck = useMemo(
@@ -208,6 +234,9 @@ export function DeckBrowser({ onClose }: Props) {
 
   useEffect(() => {
     loadDecks()
+    window.lexis.settings.get().then((result) => {
+      if (result.data) setTimeZone(result.data.timeZone)
+    })
   }, [])
 
   useEffect(() => {
@@ -588,7 +617,7 @@ export function DeckBrowser({ onClose }: Props) {
                     <th className="w-8 px-4 py-2 text-left">
                       <input type="checkbox" checked={selected.size === filtered.length && filtered.length > 0} onChange={toggleAll} className="accent-blue-500" />
                     </th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Word</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Card</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">State</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Language</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Due</th>
@@ -604,8 +633,11 @@ export function DeckBrowser({ onClose }: Props) {
                         <input type="checkbox" checked={selected.has(card.id)} onChange={() => toggleSelect(card.id)} className="accent-blue-500" />
                       </td>
                       <td className="px-3 py-2">
-                        <div className="font-medium text-gray-200">{card.word ?? '—'}</div>
+                        <div className="font-medium text-gray-200 line-clamp-2">{cardDisplayTitle(card)}</div>
                         {card.reading && <div className="text-xs text-gray-500">{card.reading}</div>}
+                        {card.tags.includes('drill') && (
+                          <div className="text-[11px] text-blue-300 mt-0.5">Pattern drill</div>
+                        )}
                       </td>
                       <td className={`px-3 py-2 text-xs font-medium ${STATE_COLOR[card.cardState]}`}>
                         {STATE_LABEL[card.cardState]}
@@ -613,7 +645,9 @@ export function DeckBrowser({ onClose }: Props) {
                       <td className="px-3 py-2 text-xs text-gray-400">
                         {card.language ? LANG_LABELS[card.language] : '—'}
                       </td>
-                      <td className="px-3 py-2 text-xs text-gray-400">{card.dueDate}</td>
+                      <td className="px-3 py-2 text-xs text-gray-400">
+                        {formatDueDate(card.dueDate, timeZone)}
+                      </td>
                       <td className="px-3 py-2 text-xs text-gray-400">{Math.round(card.easeFactor * 100)}%</td>
                       <td className="px-3 py-2 text-xs text-gray-400">{card.lapses}</td>
                       <td className="px-3 py-2 text-right">

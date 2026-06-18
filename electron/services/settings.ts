@@ -3,15 +3,27 @@ import type { UserSettings } from '../../src/types/index'
 
 const DEFAULTS: UserSettings = {
   defaultDeckId: 1,
+  nativeLanguage: 'vi',
   aiProvider: 'anthropic',
   anthropicApiKey: '',
   openaiApiKey: '',
   forvoApiKey: '',
+  timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+  scheduling: {
+    learningStepsMinutes: [1, 10],
+    dailyDueTime: '04:00',
+    newCardsPerDay: 20,
+    reviewsPerDay: 200,
+  },
+  cards: {
+    defaultTemplate: 'Basic',
+    showNativeDefinitionFirst: true,
+    autoPlayAudio: false,
+  },
   readerFontSize: 16,
   readerLineHeight: 1.6,
   readerFont: 'sans-serif',
   theme: 'dark',
-  language: 'en',
   checkForUpdates: true,
   firstLaunchDone: false,
 }
@@ -22,7 +34,19 @@ export const settingsStore = new Store<UserSettings>({
 })
 
 export function getSettings(): UserSettings {
-  return settingsStore.store as UserSettings
+  const stored = settingsStore.store as Partial<UserSettings>
+  return {
+    ...DEFAULTS,
+    ...stored,
+    scheduling: {
+      ...DEFAULTS.scheduling,
+      ...stored.scheduling,
+    },
+    cards: {
+      ...DEFAULTS.cards,
+      ...stored.cards,
+    },
+  } as UserSettings
 }
 
 export function setSettings(updates: Partial<UserSettings>): void {

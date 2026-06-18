@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import type { Card, ReviewRating } from '../../types'
+import type { Card, ReviewRating, Language } from '../../types'
 import { isTypingTarget } from '../../hooks/useHotkeys'
+import { AudioButton } from '../Lookup/AudioButton'
 
-type Phase = 'front' | 'back' | 'done'
+type Phase = 'front' | 'back' | 'waiting' | 'done'
 
 interface SessionStats {
   total: number
@@ -31,7 +32,13 @@ const RATING_COLORS: Record<ReviewRating, string> = {
 }
 
 function estimateInterval(card: Card, rating: ReviewRating): string {
-  if (rating === 1) return '1d'
+  const isLearning = card.cardState !== 'review' && card.stepIndex < 3
+  if (rating === 1) return isLearning || card.cardState === 'review' ? '1m' : '1d'
+  if (isLearning) {
+    if (rating === 4) return '4d'
+    if (rating === 2) return card.stepIndex >= 2 ? '10m' : '1m'
+    return card.stepIndex >= 2 ? '1d' : card.stepIndex === 1 ? '10m' : '1m'
+  }
   if (rating === 2) return `${Math.max(1, Math.round(card.interval * 1.2))}d`
   if (card.reps === 0) return '1d'
   if (card.reps === 1) return '6d'
@@ -39,14 +46,29 @@ function estimateInterval(card: Card, rating: ReviewRating): string {
   return rating === 4 ? `${Math.round(base * 1.3)}d` : `${base}d`
 }
 
+function dueTimeMs(card: Card): number {
+  const normalized = card.dueDate.includes(' ')
+    ? `${card.dueDate.replace(' ', 'T')}Z`
+    : card.dueDate
+  return new Date(normalized).getTime()
+}
+
+function isDueNow(card: Card): boolean {
+  return dueTimeMs(card) <= Date.now()
+}
+
+function nextDueIndex(cards: Card[]): number {
+  return cards.findIndex(isDueNow)
+}
+
 export function ReviewSession({ deckId, deckName, onEnd }: ReviewSessionProps) {
   const [cards, setCards] = useState<Card[]>([])
-  const [index, setIndex] = useState(0)
   const [phase, setPhase] = useState<Phase>('front')
   const [flipped, setFlipped] = useState(false)
   const [stats, setStats] = useState<SessionStats>({ total: 0, correct: 0, startTime: Date.now() })
   const [loading, setLoading] = useState(true)
   const cardShownAt = useRef<number>(Date.now())
+  const audioRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     window.lexis.cards.due(deckId).then((r) => {
@@ -59,8 +81,35 @@ export function ReviewSession({ deckId, deckName, onEnd }: ReviewSessionProps) {
     })
   }, [deckId])
 
-  const currentCard = cards[index] ?? null
-  const remaining = cards.length - index
+  const currentCard = cards[0] ?? null
+  const remaining = cards.length
+  const showAudioButton = Boolean(
+    currentCard?.word &&
+    currentCard?.language &&
+    !currentCard.tags.includes('drill'),
+  )
+
+  const advanceQueue = useCallback((nextCards: Card[]): void => {
+    if (nextCards.length === 0) {
+      setCards([])
+      setPhase('done')
+      return
+    }
+
+    const dueIndex = nextDueIndex(nextCards)
+    if (dueIndex === -1) {
+      setCards(nextCards.sort((a, b) => dueTimeMs(a) - dueTimeMs(b)))
+      setFlipped(false)
+      setPhase('waiting')
+      return
+    }
+
+    const dueCard = nextCards[dueIndex]
+    setCards([dueCard, ...nextCards.slice(0, dueIndex), ...nextCards.slice(dueIndex + 1)])
+    setFlipped(false)
+    setPhase('front')
+    cardShownAt.current = Date.now()
+  }, [])
 
   const handleShow = useCallback(() => {
     setFlipped(true)
@@ -72,7 +121,8 @@ export function ReviewSession({ deckId, deckName, onEnd }: ReviewSessionProps) {
       if (!currentCard) return
       const timeTakenMs = Date.now() - cardShownAt.current
 
-      await window.lexis.cards.review(currentCard.id, rating, timeTakenMs)
+      const result = await window.lexis.cards.review(currentCard.id, rating, timeTakenMs)
+      if (result.error || !result.data) return
 
       setStats((prev) => ({
         ...prev,
@@ -80,17 +130,13 @@ export function ReviewSession({ deckId, deckName, onEnd }: ReviewSessionProps) {
         correct: rating >= 3 ? prev.correct + 1 : prev.correct,
       }))
 
-      const next = index + 1
-      if (next >= cards.length) {
-        setPhase('done')
-      } else {
-        setFlipped(false)
-        setPhase('front')
-        setIndex(next)
-        cardShownAt.current = Date.now()
+      const nextCards = cards.slice(1)
+      if (result.data.stepIndex < 3) {
+        nextCards.push({ ...currentCard, ...result.data })
       }
+      advanceQueue(nextCards)
     },
-    [currentCard, index, cards.length],
+    [advanceQueue, currentCard, cards],
   )
 
   // Keyboard shortcuts
@@ -108,16 +154,21 @@ export function ReviewSession({ deckId, deckName, onEnd }: ReviewSessionProps) {
         if (e.key === '3') handleRate(3)
         if (e.key === '4') handleRate(4)
       }
+      if (e.key.toLowerCase() === 'p') {
+        audioRef.current?.querySelector('button')?.click()
+      }
       if (e.key === 'Escape') onEnd()
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [phase, handleShow, handleRate, onEnd])
 
-  // Reset card shown time on index change
   useEffect(() => {
-    cardShownAt.current = Date.now()
-  }, [index])
+    if (phase !== 'waiting' || cards.length === 0) return
+    const waitMs = Math.max(250, dueTimeMs(cards[0]) - Date.now())
+    const timeout = window.setTimeout(() => advanceQueue(cards), waitMs)
+    return () => window.clearTimeout(timeout)
+  }, [advanceQueue, cards, phase])
 
   if (loading) {
     return (
@@ -146,48 +197,81 @@ export function ReviewSession({ deckId, deckName, onEnd }: ReviewSessionProps) {
     return <SessionSummary stats={stats} onEnd={onEnd} />
   }
 
+  if (phase === 'waiting') {
+    const seconds = currentCard ? Math.max(1, Math.ceil((dueTimeMs(currentCard) - Date.now()) / 1000)) : 0
+    return (
+      <SessionShell deckName={deckName} remaining={remaining} onEnd={onEnd}>
+        <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-500">
+          <p className="text-sm">Next learning card in {seconds}s.</p>
+          <button onClick={onEnd} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
+            Back to library
+          </button>
+        </div>
+      </SessionShell>
+    )
+  }
+
   return (
     <SessionShell deckName={deckName} remaining={remaining} onEnd={onEnd}>
-      <div className="flex flex-col items-center justify-center h-full gap-8 px-8">
+      <div className="flex h-full min-h-0 flex-col items-center justify-center gap-4 px-6 py-6">
         {/* Card */}
         <div
-          className="w-full max-w-lg"
+          className="w-full max-w-2xl shrink min-h-0"
           style={{ perspective: '1000px' }}
         >
           <div
-            className="relative w-full transition-transform duration-300"
+            className="relative w-full h-[min(52vh,420px)] min-h-[220px] transition-transform duration-300"
             style={{
               transformStyle: 'preserve-3d',
               transform: flipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
-              minHeight: '200px',
             }}
           >
             {/* Front */}
             <div
-              className="absolute inset-0 bg-gray-800 border border-white/10 rounded-xl p-8 flex items-center justify-center"
+              className="absolute inset-0 bg-gray-800 border border-white/10 rounded-xl p-6 flex items-center justify-center overflow-hidden"
               style={{ backfaceVisibility: 'hidden' }}
             >
               <div
-                className="text-2xl font-medium text-gray-100 text-center"
+                className="max-h-full overflow-y-auto pr-1 text-2xl font-medium text-gray-100 text-center leading-relaxed"
                 dangerouslySetInnerHTML={{ __html: currentCard?.frontHtml ?? '' }}
               />
+              {showAudioButton && currentCard?.word && currentCard?.language && (
+                <div ref={audioRef} className="absolute bottom-3 right-3 flex items-center gap-1.5 text-xs text-gray-500">
+                  <AudioButton
+                    word={currentCard.audioWord ?? currentCard.word}
+                    language={currentCard.language as Language}
+                    reading={currentCard.reading}
+                  />
+                  <span className="opacity-40">P</span>
+                </div>
+              )}
             </div>
             {/* Back */}
             <div
-              className="absolute inset-0 bg-gray-800 border border-white/10 rounded-xl p-8 flex items-center justify-center"
+              className="absolute inset-0 bg-gray-800 border border-white/10 rounded-xl p-6 flex items-start justify-center overflow-hidden"
               style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}
             >
               <div
-                className="text-base text-gray-200 text-center leading-relaxed"
+                className="h-full w-full overflow-y-auto pr-2 text-base text-gray-200 text-center leading-relaxed"
                 dangerouslySetInnerHTML={{ __html: currentCard?.backHtml ?? '' }}
               />
+              {showAudioButton && currentCard?.word && currentCard?.language && (
+                <div className="absolute bottom-3 right-3 flex items-center gap-1.5 text-xs text-gray-500">
+                  <AudioButton
+                    word={currentCard.audioWord ?? currentCard.word}
+                    language={currentCard.language as Language}
+                    reading={currentCard.reading}
+                  />
+                  <span className="opacity-40">P</span>
+                </div>
+              )}
             </div>
           </div>
         </div>
 
         {/* Tags */}
         {currentCard?.tags.length ? (
-          <div className="flex gap-1.5">
+          <div className="flex max-w-2xl flex-wrap justify-center gap-1.5">
             {currentCard.tags.map((t) => (
               <span key={t} className="text-xs px-2 py-0.5 bg-gray-700 text-gray-400 rounded-full">
                 {t}
@@ -207,7 +291,7 @@ export function ReviewSession({ deckId, deckName, onEnd }: ReviewSessionProps) {
         )}
 
         {phase === 'back' && (
-          <div className="flex gap-3">
+          <div className="flex flex-wrap justify-center gap-3">
             {([1, 2, 3, 4] as ReviewRating[]).map((r) => (
               <button
                 key={r}

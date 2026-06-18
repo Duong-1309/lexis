@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import type { Sentence, Token, Language } from '../../types'
 import type { MinedCardEntry } from './ReaderPanel'
 
@@ -9,9 +9,9 @@ interface SentenceRowProps {
   isMined: boolean
   selectedWord: string | null
   onClick: () => void
-  onWordClick: (word: string, dictionaryForm: string) => void
   allCardsMap?: Map<string, MinedCardEntry>
   minedPattern?: RegExp | null
+  isMinedSentence?: boolean
 }
 
 function formatTime(ms?: number): string {
@@ -48,9 +48,9 @@ export function SentenceRow({
   isMined,
   selectedWord,
   onClick,
-  onWordClick,
   allCardsMap,
   minedPattern,
+  isMinedSentence = false,
 }: SentenceRowProps) {
   const [tokens, setTokens] = useState<Token[]>([])
   const timestamp = formatTime(sentence.startTimeMs)
@@ -62,14 +62,64 @@ export function SentenceRow({
     })
   }, [isSelected, sentence.content, language])
 
-  const handleWordClick = (e: React.MouseEvent, token: Token) => {
-    e.stopPropagation()
-    if (isSelected) onWordClick(token.surface, token.dictionaryForm)
+  const handleRowClick = () => {
+    const selection = window.getSelection()
+    if (selection && !selection.isCollapsed && selection.toString().trim()) return
+    onClick()
+  }
+
+  const renderTokenizedContent = () => {
+    const nodes: React.ReactNode[] = []
+    let cursor = 0
+
+    tokens.forEach((token, i) => {
+      if (token.offset > cursor) {
+        nodes.push(
+          <Fragment key={`gap-${i}`}>
+            {sentence.content.slice(cursor, token.offset)}
+          </Fragment>,
+        )
+      }
+
+      const surfaceKey = token.surface.toLowerCase()
+      const dictKey = (token.dictionaryForm ?? '').toLowerCase()
+      const minedKey = allCardsMap?.has(surfaceKey)
+        ? surfaceKey
+        : allCardsMap?.has(dictKey)
+          ? dictKey
+          : null
+
+      nodes.push(
+        <span
+          key={`token-${i}`}
+          data-word={minedKey ?? undefined}
+          className={`rounded px-px transition-colors ${
+            token.surface === selectedWord
+              ? 'bg-yellow-400/30 text-yellow-200'
+              : ''
+          } ${minedKey ? 'epub-mined-word' : ''}`}
+        >
+          {token.surface}
+        </span>,
+      )
+      cursor = token.offset + token.surface.length
+    })
+
+    if (cursor < sentence.content.length) {
+      nodes.push(
+        <Fragment key="tail">
+          {sentence.content.slice(cursor)}
+        </Fragment>,
+      )
+    }
+
+    return nodes
   }
 
   return (
     <div
-      onClick={onClick}
+      data-sentence-id={sentence.id}
+      onClick={handleRowClick}
       className={`flex gap-3 px-4 py-2 cursor-pointer rounded-md transition-colors ${
         isSelected
           ? 'bg-blue-600/30 border-l-2 border-blue-400'
@@ -82,31 +132,13 @@ export function SentenceRow({
         </span>
       )}
 
-      <p className={`text-sm leading-relaxed text-gray-200 ${isSelected && tokens.length > 0 ? 'flex flex-wrap' : ''}`}>
-        {isSelected && tokens.length > 0 ? (
-          tokens.map((token, i) => {
-            const surfaceKey = token.surface.toLowerCase()
-            const dictKey = (token.dictionaryForm ?? '').toLowerCase()
-            const minedKey = allCardsMap?.has(surfaceKey)
-              ? surfaceKey
-              : allCardsMap?.has(dictKey)
-                ? dictKey
-                : null
-            return (
-              <span
-                key={i}
-                onClick={(e) => handleWordClick(e, token)}
-                data-word={minedKey ?? undefined}
-                className={`rounded px-px cursor-pointer transition-colors ${
-                  token.surface === selectedWord
-                    ? 'bg-yellow-400/30 text-yellow-200'
-                    : 'hover:bg-yellow-400/20 hover:text-yellow-300'
-                } ${minedKey ? 'epub-mined-word' : ''}`}
-              >
-                {token.surface}
-              </span>
-            )
-          })
+      <p className="text-sm leading-relaxed text-gray-200 select-text">
+        {isMinedSentence ? (
+          <span className="epub-mined-sentence" data-sentence={sentence.content.toLowerCase().replace(/[\p{P}\p{S}]+/gu, ' ').replace(/\s+/g, ' ').trim()}>
+            {sentence.content}
+          </span>
+        ) : isSelected && tokens.length > 0 ? (
+          renderTokenizedContent()
         ) : minedPattern ? (
           splitWithMined(sentence.content, minedPattern).map((part, i) =>
             part.isMined ? (
