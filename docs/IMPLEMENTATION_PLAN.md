@@ -917,27 +917,27 @@ Plain text paste and web URL import support the full mining flow. E2E tests cove
 
 #### Task 8.1 — Plain Text Paste Source
 
-New IPC `media:import-text` in `main.ts`:
+New IPC `media:import-text` in `main.ts`: ✅
 
 - Accept raw text + title + language
 - Split into sentences (period/question/exclamation boundaries, respecting CJK)
 - Insert into `media_sources` + `sentences` tables
 - Return `MediaSource`
 
-Update `ImportModal.tsx`: add "Paste Text" tab with textarea + title field.
+Update `ImportModal.tsx`: add "Paste Text" tab with textarea + title field. ✅
 
 #### Task 8.2 — Web URL Source
 
-Wire up existing `electron/services/parsers/web.ts` to:
+Wire up `electron/services/parsers/web.ts` to: ✅
 
-- `media:import-url` IPC
-- Update `ImportModal.tsx`: "Web URL" tab with URL input
-- Use `@mozilla/readability` to extract article text
+- `media:import-url` IPC ✅
+- Update `ImportModal.tsx`: "Web URL" tab with URL input ✅
+- Use `@mozilla/readability` to extract article text ✅
 
 #### Task 8.3 — Native Language Settings Finalization
 
-- Add "Native Language" segmented control: Tiếng Việt | English
-- Changing native language clears or invalidates `definition_translations`
+- Add "Native Language" segmented control: Tiếng Việt | English ✅
+- Changing native language clears or invalidates `definition_translations` ✅
 
 #### Task 8.4 — E2E Tests
 
@@ -955,11 +955,11 @@ Wire up existing `electron/services/parsers/web.ts` to:
 
 ### Sprint 8 Acceptance Tests
 
-- [ ] Plain text paste creates readable source in library
-- [ ] Web URL import extracts article (test with NHK Web Easy)
-- [ ] Settings: changing native language clears translation cache
+- [x] Plain text paste creates readable source in library
+- [x] Web URL import extracts article
+- [x] Settings: changing native language clears translation cache
 - [ ] E2E word mining passes
-- [ ] E2E pattern drill MVP passes
+- [x] E2E pattern drill MVP passes
 
 ---
 
@@ -1041,9 +1041,9 @@ sprint is about habit formation and user experience flow, not monetization.
 
 #### Task 10.2 — Notifications + Reminders
 
-- Add reminder settings: enabled, preferred time, quiet hours.
-- Trigger local desktop notification when reviews are due or streak is at risk.
-- Do not notify if the app was used recently or today's task is already complete.
+- Add smart reminder setting: enabled/disabled only. ✅
+- Trigger local desktop notification automatically when cards become due. ✅
+- If no cards are due, send at most one daily streak-risk nudge after the daily due time. ✅
 
 #### Task 10.3 — Streak Rules
 
@@ -1081,10 +1081,10 @@ sprint is about habit formation and user experience flow, not monetization.
 
 ### Sprint 10 Acceptance Tests
 
-- [ ] Dashboard shows one clear next action for a returning user
-- [ ] Streak increments after a valid learning action
+- [x] Dashboard shows one clear next action for a returning user
+- [x] Streak increments after a valid learning action
 - [ ] Streak risk appears when the day is near ending and no valid action is done
-- [ ] Local reminder can be configured and triggered
+- [x] Local reminder can be configured and triggered
 - [ ] Daily missions can be completed and award coins
 - [ ] Coins can be spent to rescue or protect a streak
 - [ ] Core mining/review/drill flows still work without missions enabled

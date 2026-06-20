@@ -365,6 +365,15 @@ export interface CardSettings {
   autoPlayAudio: boolean
 }
 
+export interface ReminderSettings {
+  enabled: boolean
+  reminderTime: string
+  quietHoursStart: string
+  quietHoursEnd: string
+  lastNotifiedDate?: string
+  lastDueNotifiedKey?: string
+}
+
 export interface UserSettings {
   defaultDeckId: number
   nativeLanguage: NativeLanguage
@@ -374,6 +383,7 @@ export interface UserSettings {
   forvoApiKey: string
   timeZone: string
   scheduling: SchedulingSettings
+  reminders: ReminderSettings
   cards: CardSettings
   readerFontSize: number
   readerLineHeight: number

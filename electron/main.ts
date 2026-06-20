@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, protocol } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, protocol, Notification } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import { randomUUID } from 'crypto'
@@ -31,6 +31,76 @@ import type {
 } from '../src/types/index'
 
 let mainWindow: BrowserWindow | null = null
+let reminderTimer: NodeJS.Timeout | null = null
+
+function todayKey(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
+function minutesSinceMidnight(value: string): number {
+  const [hours, minutes] = value.split(':').map((part) => Number(part))
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return 0
+  return hours * 60 + minutes
+}
+
+function isWithinQuietHours(nowMinutes: number, start: string, end: string): boolean {
+  const startMinutes = minutesSinceMidnight(start)
+  const endMinutes = minutesSinceMidnight(end)
+  if (startMinutes === endMinutes) return false
+  if (startMinutes < endMinutes) return nowMinutes >= startMinutes && nowMinutes < endMinutes
+  return nowMinutes >= startMinutes || nowMinutes < endMinutes
+}
+
+function maybeSendLearningReminder(): void {
+  const settings = getSettings()
+  if (!settings.reminders.enabled) return
+  if (!Notification.isSupported()) return
+
+  const now = new Date()
+  const nowMinutes = now.getHours() * 60 + now.getMinutes()
+  if (isWithinQuietHours(nowMinutes, settings.reminders.quietHoursStart, settings.reminders.quietHoursEnd)) return
+
+  const dueSummary = db.getDueReminderSummary()
+  if (dueSummary.dueCount > 0) {
+    const dueKey = `${todayKey()}:${dueSummary.oldestDueDate ?? 'due'}:${dueSummary.dueCount}`
+    if (settings.reminders.lastDueNotifiedKey === dueKey) return
+
+    new Notification({
+      title: 'Lexis review is ready',
+      body: `${dueSummary.dueCount} card${dueSummary.dueCount === 1 ? '' : 's'} due now.`,
+    }).show()
+    setSettings({
+      reminders: {
+        ...settings.reminders,
+        lastDueNotifiedKey: dueKey,
+      },
+    })
+    return
+  }
+
+  if (settings.reminders.lastNotifiedDate === todayKey()) return
+  if (nowMinutes < minutesSinceMidnight(settings.scheduling.dailyDueTime)) return
+
+  const stats = db.getMiningStats()
+  if (stats.validLearningDay) return
+
+  new Notification({
+    title: 'Protect your Lexis streak',
+    body: 'Complete one review, drill, or mined sentence to protect today.',
+  }).show()
+  setSettings({
+    reminders: {
+      ...settings.reminders,
+      lastNotifiedDate: todayKey(),
+    },
+  })
+}
+
+function startReminderScheduler(): void {
+  if (reminderTimer) clearInterval(reminderTimer)
+  maybeSendLearningReminder()
+  reminderTimer = setInterval(maybeSendLearningReminder, 60_000)
+}
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -442,6 +512,9 @@ function setupIPCHandlers(): void {
         const s = getSettings()
         aiService.initialize(s.aiProvider, s.anthropicApiKey, s.openaiApiKey)
       }
+      if (updates.reminders !== undefined) {
+        startReminderScheduler()
+      }
     }),
   )
 
@@ -489,8 +562,13 @@ app.whenReady().then(() => {
 
   setupIPCHandlers()
   createWindow()
+  startReminderScheduler()
 
   log.info('Lexis app started')
+})
+
+app.on('before-quit', () => {
+  if (reminderTimer) clearInterval(reminderTimer)
 })
 
 app.on('window-all-closed', () => {

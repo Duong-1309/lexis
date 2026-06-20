@@ -168,6 +168,12 @@ interface DbDrillAttempt {
   created_at: string
 }
 
+interface DueReminderSummary {
+  dueCount: number
+  oldestDueDate?: string
+  nextDueDate?: string
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
@@ -1235,6 +1241,30 @@ export class DatabaseService {
       .prepare("SELECT COUNT(*) as count FROM cards WHERE due_date <= datetime('now') AND card_state != 'suspended'")
       .get() as { count: number }
     return row.count
+  }
+
+  getDueReminderSummary(): DueReminderSummary {
+    this.assertInitialized()
+    const due = this.db
+      .prepare(`
+        SELECT COUNT(*) as dueCount, MIN(due_date) as oldestDueDate
+        FROM cards
+        WHERE due_date <= datetime('now') AND card_state != 'suspended'
+      `)
+      .get() as { dueCount: number; oldestDueDate: string | null }
+    const next = this.db
+      .prepare(`
+        SELECT MIN(due_date) as nextDueDate
+        FROM cards
+        WHERE due_date > datetime('now') AND card_state != 'suspended'
+      `)
+      .get() as { nextDueDate: string | null }
+
+    return {
+      dueCount: due.dueCount,
+      oldestDueDate: due.oldestDueDate ?? undefined,
+      nextDueDate: next.nextDueDate ?? undefined,
+    }
   }
 
   getCurrentStreak(): number {

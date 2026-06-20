@@ -147,6 +147,8 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
     setLocalSettings({ ...settings, nativeLanguage })
   const setScheduling = (updates: Partial<UserSettings['scheduling']>) =>
     setLocalSettings({ ...settings, scheduling: { ...settings.scheduling, ...updates } })
+  const setReminders = (updates: Partial<UserSettings['reminders']>) =>
+    setLocalSettings({ ...settings, reminders: { ...settings.reminders, ...updates } })
   const setCardSettings = (updates: Partial<UserSettings['cards']>) =>
     setLocalSettings({ ...settings, cards: { ...settings.cards, ...updates } })
   const timeZones = settings.timeZone && !COMMON_TIME_ZONES.includes(settings.timeZone)
@@ -292,6 +294,26 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
                 onChange={(e) => setScheduling({ dailyDueTime: e.target.value })}
               />
             </Field>
+
+            <div className="rounded-lg border border-white/10 bg-gray-800/60 px-3 py-3">
+              <label className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  className="mt-1 accent-blue-500"
+                  checked={settings.reminders.enabled}
+                  onChange={(e) => setReminders({ enabled: e.target.checked })}
+                />
+                <span>
+                  <span className="block text-sm font-medium text-gray-300">Smart Reminders</span>
+                  <span className="block text-xs text-gray-500">
+                    Lexis reminds you automatically when cards become due.
+                  </span>
+                </span>
+              </label>
+              <p className="mt-2 text-xs text-gray-600">
+                If no cards are due, Lexis can still send one streak nudge after the daily due time.
+              </p>
+            </div>
 
             <div className="grid grid-cols-2 gap-3">
               <Field label="New Cards / Day">

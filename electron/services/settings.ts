@@ -15,6 +15,12 @@ const DEFAULTS: UserSettings = {
     newCardsPerDay: 20,
     reviewsPerDay: 200,
   },
+  reminders: {
+    enabled: false,
+    reminderTime: '20:00',
+    quietHoursStart: '22:00',
+    quietHoursEnd: '07:00',
+  },
   cards: {
     defaultTemplate: 'Basic',
     showNativeDefinitionFirst: true,
@@ -41,6 +47,10 @@ export function getSettings(): UserSettings {
     scheduling: {
       ...DEFAULTS.scheduling,
       ...stored.scheduling,
+    },
+    reminders: {
+      ...DEFAULTS.reminders,
+      ...stored.reminders,
     },
     cards: {
       ...DEFAULTS.cards,
