@@ -56,6 +56,19 @@ function isReaderWordHighlightCard(card: Card): boolean {
   return true
 }
 
+function mediaTypeLabel(source: MediaSource): string | null {
+  if (source.type === 'epub') return 'EPUB'
+  if (source.type === 'text') return 'TEXT'
+  if (source.type === 'web') return 'WEB'
+  return null
+}
+
+function mediaCountLabel(source: MediaSource): string {
+  if (source.type === 'epub') return 'chapters'
+  if (source.type === 'text' || source.type === 'web') return 'sentences'
+  return 'lines'
+}
+
 function Sidebar({
   sources,
   currentSourceId,
@@ -117,27 +130,30 @@ function Sidebar({
         {sources.length === 0 ? (
           <p className="text-xs text-gray-500 px-4 py-3">No files imported yet</p>
         ) : (
-          sources.map((source) => (
-            <button
-              key={source.id}
-              onClick={() => onSelect(source)}
-              className={`w-full text-left px-4 py-2 text-sm transition-colors hover:bg-white/5 ${
-                currentSourceId === source.id
-                  ? 'text-blue-400 bg-blue-600/10'
-                  : 'text-gray-300'
-              }`}
-            >
-              <div className="flex items-center gap-1.5">
-                <span className="truncate font-medium">{source.title}</span>
-                {source.type === 'epub' && (
-                  <span className="shrink-0 text-[9px] bg-purple-600/30 text-purple-300 px-1 rounded">EPUB</span>
-                )}
-              </div>
-              <div className="text-xs text-gray-500 mt-0.5">
-                {source.language.toUpperCase()} · {source.sentenceCount ?? 0} {source.type === 'epub' ? 'chapters' : 'lines'}
-              </div>
-            </button>
-          ))
+          sources.map((source) => {
+            const label = mediaTypeLabel(source)
+            return (
+              <button
+                key={source.id}
+                onClick={() => onSelect(source)}
+                className={`w-full text-left px-4 py-2 text-sm transition-colors hover:bg-white/5 ${
+                  currentSourceId === source.id
+                    ? 'text-blue-400 bg-blue-600/10'
+                    : 'text-gray-300'
+                }`}
+              >
+                <div className="flex items-center gap-1.5">
+                  <span className="truncate font-medium">{source.title}</span>
+                  {label && (
+                    <span className="shrink-0 text-[9px] bg-purple-600/30 text-purple-300 px-1 rounded">{label}</span>
+                  )}
+                </div>
+                <div className="text-xs text-gray-500 mt-0.5">
+                  {source.language.toUpperCase()} · {source.sentenceCount ?? 0} {mediaCountLabel(source)}
+                </div>
+              </button>
+            )
+          })
         )}
       </div>
 
@@ -425,7 +441,12 @@ export default function App() {
             />
           )}
           {activeView === 'stats' && (
-            <StatsDashboard onClose={() => setActiveView('reader')} />
+            <StatsDashboard
+              onClose={() => setActiveView('reader')}
+              onReview={() => setShowDeckPicker(true)}
+              onDrills={() => setActiveView('drills')}
+              onMine={() => setActiveView('reader')}
+            />
           )}
           {activeView === 'decks' && (
             <DeckBrowser onClose={() => { setActiveView('reader'); loadDecks() }} />

@@ -4,6 +4,9 @@ import type { MiningStats } from '../../types'
 
 interface Props {
   onClose: () => void
+  onReview: () => void
+  onDrills: () => void
+  onMine: () => void
 }
 
 const LANG_LABELS: Record<string, string> = {
@@ -20,7 +23,7 @@ function StatCard({ label, value }: { label: string; value: string | number }) {
   )
 }
 
-export function StatsDashboard({ onClose }: Props) {
+export function StatsDashboard({ onClose, onReview, onDrills, onMine }: Props) {
   const [stats, setStats] = useState<MiningStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -32,6 +35,13 @@ export function StatsDashboard({ onClose }: Props) {
       setStats(result.data)
     })
   }, [])
+
+  const handleNextAction = (): void => {
+    if (!stats) return
+    if (stats.nextAction.type === 'review') onReview()
+    if (stats.nextAction.type === 'drill') onDrills()
+    if (stats.nextAction.type === 'mine') onMine()
+  }
 
   return (
     <div className="h-full bg-gray-950 flex flex-col">
@@ -56,6 +66,30 @@ export function StatsDashboard({ onClose }: Props) {
 
       {stats && (
         <div className="flex-1 overflow-y-auto p-6 space-y-5 max-w-5xl mx-auto w-full">
+          <div className="bg-gray-800 rounded-lg p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-gray-100">{stats.nextAction.label}</h3>
+                <span className={`text-[11px] rounded-full px-2 py-0.5 ${
+                  stats.validLearningDay
+                    ? 'bg-green-500/10 text-green-300'
+                    : 'bg-yellow-500/10 text-yellow-300'
+                }`}>
+                  {stats.validLearningDay ? 'protected' : 'at risk'}
+                </span>
+              </div>
+              <p className="text-xs text-gray-500 mt-1">{stats.nextAction.detail}</p>
+            </div>
+            {stats.nextAction.type !== 'done' && (
+              <button
+                onClick={handleNextAction}
+                className="shrink-0 px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
+              >
+                Start
+              </button>
+            )}
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
             <StatCard label="Total Cards" value={stats.totalCards.toLocaleString()} />
             <StatCard label="Cards Today" value={stats.cardsCreatedToday} />
@@ -70,6 +104,8 @@ export function StatsDashboard({ onClose }: Props) {
                 <span>Review streak: {stats.currentStreak}d</span>
                 <span>Best: {stats.longestStreak}d</span>
                 <span>Retention: {stats.retentionRate}%</span>
+                <span>Patterns: {stats.patternsMinedToday}</span>
+                <span>Drills: {stats.drillAttemptsToday}</span>
               </div>
             </div>
             {stats.dailyHistory.length === 0 ? (

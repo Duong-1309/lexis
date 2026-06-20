@@ -218,7 +218,7 @@ export class DatabaseService {
         sql: `
           CREATE TABLE IF NOT EXISTS media_sources (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
-            type          TEXT    NOT NULL CHECK(type IN ('subtitle', 'epub', 'web')),
+            type          TEXT    NOT NULL CHECK(type IN ('subtitle', 'epub', 'web', 'text')),
             title         TEXT    NOT NULL,
             file_path     TEXT,
             source_url    TEXT,
@@ -426,6 +426,43 @@ export class DatabaseService {
           CREATE INDEX IF NOT EXISTS idx_drill_attempts_pattern
             ON drill_attempts(pattern_id, created_at DESC);
           CREATE INDEX IF NOT EXISTS idx_drill_attempts_card ON drill_attempts(card_id);
+        `,
+      },
+      {
+        version: 5,
+        sql: `
+          PRAGMA foreign_keys=OFF;
+
+          CREATE TABLE media_sources_new (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            type           TEXT    NOT NULL CHECK(type IN ('subtitle', 'epub', 'web', 'text')),
+            title          TEXT    NOT NULL,
+            file_path      TEXT,
+            source_url     TEXT,
+            language       TEXT    NOT NULL,
+            word_count     INTEGER,
+            sentence_count INTEGER,
+            cover_image    BLOB,
+            added_at       TEXT    NOT NULL DEFAULT (datetime('now')),
+            last_opened    TEXT
+          );
+
+          INSERT INTO media_sources_new (
+            id, type, title, file_path, source_url, language, word_count,
+            sentence_count, cover_image, added_at, last_opened
+          )
+          SELECT
+            id, type, title, file_path, source_url, language, word_count,
+            sentence_count, cover_image, added_at, last_opened
+          FROM media_sources;
+
+          DROP TABLE media_sources;
+          ALTER TABLE media_sources_new RENAME TO media_sources;
+
+          CREATE INDEX IF NOT EXISTS idx_media_sources_language ON media_sources(language);
+          CREATE INDEX IF NOT EXISTS idx_media_sources_added ON media_sources(added_at DESC);
+
+          PRAGMA foreign_keys=ON;
         `,
       },
     ]
@@ -1168,6 +1205,30 @@ export class DatabaseService {
     return row.count
   }
 
+  getPatternsMinedToday(): number {
+    this.assertInitialized()
+    const row = this.db
+      .prepare("SELECT COUNT(*) as count FROM patterns WHERE date(created_at) = date('now')")
+      .get() as { count: number }
+    return row.count
+  }
+
+  getDrillAttemptsToday(): number {
+    this.assertInitialized()
+    const row = this.db
+      .prepare("SELECT COUNT(*) as count FROM drill_attempts WHERE date(created_at) = date('now')")
+      .get() as { count: number }
+    return row.count
+  }
+
+  getTotalPatterns(): number {
+    this.assertInitialized()
+    const row = this.db
+      .prepare('SELECT COUNT(*) as count FROM patterns')
+      .get() as { count: number }
+    return row.count
+  }
+
   getDueToday(): number {
     this.assertInitialized()
     const row = this.db
@@ -1181,8 +1242,13 @@ export class DatabaseService {
     const rows = this.db
       .prepare(`
         WITH daily AS (
-          SELECT DISTINCT date(reviewed_at) as day
-          FROM review_log
+          SELECT date(reviewed_at) as day FROM review_log
+          UNION
+          SELECT date(created_at) as day FROM cards
+          UNION
+          SELECT date(created_at) as day FROM patterns
+          UNION
+          SELECT date(created_at) as day FROM drill_attempts
           ORDER BY day DESC
         ),
         numbered AS (
@@ -1205,8 +1271,13 @@ export class DatabaseService {
     const row = this.db
       .prepare(`
         WITH daily AS (
-          SELECT DISTINCT date(reviewed_at) as day
-          FROM review_log
+          SELECT date(reviewed_at) as day FROM review_log
+          UNION
+          SELECT date(created_at) as day FROM cards
+          UNION
+          SELECT date(created_at) as day FROM patterns
+          UNION
+          SELECT date(created_at) as day FROM drill_attempts
         ),
         gaps AS (
           SELECT day,
@@ -1255,10 +1326,38 @@ export class DatabaseService {
     const cardsCreatedToday = this.getCardsCreatedToday()
     const reviewsToday = this.getReviewsToday()
     const dueToday = this.getDueToday()
+    const patternsMinedToday = this.getPatternsMinedToday()
+    const drillAttemptsToday = this.getDrillAttemptsToday()
     const retentionRate = this.getRetentionRate()
     const currentStreak = this.getCurrentStreak()
     const dailyHistory = this.getCardCountByDay(30)
     const recentCards = this.getRecentCards(10)
+    const totalPatterns = this.getTotalPatterns()
+    const validLearningDay = reviewsToday > 0 || cardsCreatedToday > 0 || patternsMinedToday > 0 || drillAttemptsToday > 0
+    const nextAction = dueToday > 0
+      ? {
+        type: 'review' as const,
+        label: 'Review due cards',
+        detail: `${dueToday} card${dueToday === 1 ? '' : 's'} due today`,
+        count: dueToday,
+      }
+      : totalPatterns > 0 && drillAttemptsToday === 0
+        ? {
+          type: 'drill' as const,
+          label: 'Complete a pattern drill',
+          detail: 'Practice active production from a mined pattern',
+        }
+        : !validLearningDay
+          ? {
+            type: 'mine' as const,
+            label: 'Mine one sentence',
+            detail: 'Import or open a source and save one useful sentence or card',
+          }
+          : {
+            type: 'done' as const,
+            label: 'Daily loop complete',
+            detail: 'Your learning day is protected',
+          }
 
     const byLangRows = this.db
       .prepare(
@@ -1278,9 +1377,13 @@ export class DatabaseService {
       cardsCreatedToday,
       reviewsToday,
       dueToday,
+      patternsMinedToday,
+      drillAttemptsToday,
       retentionRate,
       currentStreak,
       longestStreak,
+      validLearningDay,
+      nextAction,
       byLanguage,
       recentCards,
       dailyHistory,
@@ -1470,6 +1573,11 @@ export class DatabaseService {
         VALUES (?, ?, ?, ?)
       `)
       .run(entry.word, entry.targetLang, entry.nativeLang, entry.translation)
+  }
+
+  clearDefinitionTranslations(): void {
+    this.assertInitialized()
+    this.db.prepare('DELETE FROM definition_translations').run()
   }
 }
 

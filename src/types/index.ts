@@ -1,6 +1,6 @@
 export type Language = 'ja' | 'zh' | 'ko' | 'en' | 'fr' | 'es'
 export type NativeLanguage = 'vi' | 'en'
-export type MediaType = 'subtitle' | 'epub' | 'web'
+export type MediaType = 'subtitle' | 'epub' | 'web' | 'text'
 export type CardTemplate = 'Basic' | 'Cloze' | 'Word' | 'Sentence' | 'Pattern' | 'DrillAttempt'
 export type CardState = 'new' | 'learning' | 'review' | 'suspended'
 export type ReviewRating = 1 | 2 | 3 | 4 // Again / Hard / Good / Easy
@@ -306,14 +306,27 @@ export interface DayStat {
   count: number
 }
 
+export type DailyNextActionType = 'review' | 'drill' | 'mine' | 'done'
+
+export interface DailyNextAction {
+  type: DailyNextActionType
+  label: string
+  detail: string
+  count?: number
+}
+
 export interface MiningStats {
   totalCards: number
   cardsCreatedToday: number
   reviewsToday: number
   dueToday: number
+  patternsMinedToday: number
+  drillAttemptsToday: number
   retentionRate: number
   currentStreak: number
   longestStreak: number
+  validLearningDay: boolean
+  nextAction: DailyNextAction
   byLanguage: Record<string, number>
   recentCards: Card[]
   dailyHistory: DayStat[]
@@ -375,6 +388,7 @@ export interface UserSettings {
 export interface MediaAPI {
   importFile(type: 'subtitle' | 'epub', language?: Language): Promise<IPCResult<MediaSource>>
   importFromPath(filePath: string, language?: Language): Promise<IPCResult<MediaSource>>
+  importText(input: { title: string; text: string; language: Language }): Promise<IPCResult<MediaSource>>
   importUrl(url: string, language: Language): Promise<IPCResult<MediaSource>>
   list(): Promise<IPCResult<MediaSource[]>>
   delete(sourceId: number): Promise<IPCResult<void>>

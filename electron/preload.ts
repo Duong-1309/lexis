@@ -32,6 +32,7 @@ const lexisAPI: LexisAPI = {
   media: {
     importFile: (type, language) => ipcRenderer.invoke('media:import-file', type, language),
     importFromPath: (filePath, language) => ipcRenderer.invoke('media:import-from-path', filePath, language),
+    importText: (input) => ipcRenderer.invoke('media:import-text', input),
     importUrl: (url, language) => ipcRenderer.invoke('media:import-url', url, language),
     list: () => ipcRenderer.invoke('media:list'),
     delete: (sourceId) => ipcRenderer.invoke('media:delete', sourceId),

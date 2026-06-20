@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
 
 CREATE TABLE IF NOT EXISTS media_sources (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
-  type          TEXT    NOT NULL CHECK(type IN ('subtitle', 'epub', 'web')),
+  type          TEXT    NOT NULL CHECK(type IN ('subtitle', 'epub', 'web', 'text')),
   title         TEXT    NOT NULL,
   file_path     TEXT,
   source_url    TEXT,

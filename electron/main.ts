@@ -10,6 +10,8 @@ import { aiService } from './services/ai'
 import { parseSRT } from './services/parsers/srt'
 import { parseASS } from './services/parsers/ass'
 import { parseEPUBChapters, loadEPUBChapter } from './services/parsers/epub'
+import { parsePlainText } from './services/parsers/text'
+import { fetchWebArticle } from './services/parsers/web'
 import { calculateNextReview } from './services/srs'
 import { getSettings, setSettings } from './services/settings'
 import type {
@@ -96,6 +98,43 @@ function importSubtitleFromPath(filePath: string, language: Language = 'ja'): Me
   return source as MediaSource
 }
 
+function importTextSource(input: {
+  title: string
+  text: string
+  language: Language
+  sourceUrl?: string
+  type?: 'text' | 'web'
+}): MediaSource {
+  const title = input.title.trim()
+  const text = input.text.trim()
+  if (!title) throw new Error('Title is required')
+  if (!text) throw new Error('Text is required')
+
+  const parsed = parsePlainText(text, input.language)
+  if (parsed.sentences.length === 0) {
+    throw new Error('No readable sentences found')
+  }
+
+  const source = db.insertMediaSource({
+    type: input.type ?? 'text',
+    title,
+    sourceUrl: input.sourceUrl,
+    language: input.language,
+    wordCount: parsed.wordCount,
+    sentenceCount: parsed.sentences.length,
+  })
+
+  db.insertSentences(
+    parsed.sentences.map((content, position) => ({
+      sourceId: source.id,
+      content,
+      position,
+    })),
+  )
+
+  return source as MediaSource
+}
+
 function setupIPCHandlers(): void {
   // ─── media ──────────────────────────────────────────────────────────────────
   ipcMain.handle('media:import-file', async (_event, type: 'subtitle' | 'epub', language: Language = 'ja') => {
@@ -148,10 +187,20 @@ function setupIPCHandlers(): void {
     }),
   )
 
+  ipcMain.handle('media:import-text', (_event, input: { title: string; text: string; language: Language }) =>
+    wrapResult(() => importTextSource(input)),
+  )
+
   ipcMain.handle('media:import-url', async (_event, url: string, language: Language) => {
     return wrapResult(async () => {
-      // TODO Sprint 4
-      throw new Error('Web import not yet implemented (Sprint 4)')
+      const article = await fetchWebArticle(url)
+      return importTextSource({
+        title: article.title,
+        text: article.text,
+        language,
+        sourceUrl: url,
+        type: 'web',
+      })
     })
   })
 
@@ -378,7 +427,12 @@ function setupIPCHandlers(): void {
 
   ipcMain.handle('settings:set', (_event, updates: Record<string, unknown>) =>
     wrapResult(() => {
+      const previous = getSettings()
       setSettings(updates)
+      const next = getSettings()
+      if (previous.nativeLanguage !== next.nativeLanguage) {
+        db.clearDefinitionTranslations()
+      }
       // Re-initialize AI service whenever provider or keys change
       if (
         updates.aiProvider !== undefined ||

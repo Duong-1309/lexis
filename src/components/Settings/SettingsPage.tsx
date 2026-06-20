@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { AIProvider, CardTemplate, UserSettings } from '../../types'
+import type { AIProvider, CardTemplate, NativeLanguage, UserSettings } from '../../types'
 import { COMMON_TIME_ZONES, DEFAULT_TIME_ZONE } from '../../utils/time'
 
 interface SettingsPageProps {
@@ -143,6 +143,8 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
   }
 
   const setProvider = (p: AIProvider) => setLocalSettings({ ...settings, aiProvider: p })
+  const setNativeLanguage = (nativeLanguage: NativeLanguage) =>
+    setLocalSettings({ ...settings, nativeLanguage })
   const setScheduling = (updates: Partial<UserSettings['scheduling']>) =>
     setLocalSettings({ ...settings, scheduling: { ...settings.scheduling, ...updates } })
   const setCardSettings = (updates: Partial<UserSettings['cards']>) =>
@@ -172,6 +174,27 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
 
           {/* AI Provider */}
           <Section title="AI Provider">
+            <Field label="Native Language" hint="Used for AI translations, explanations, and cached definitions. Changing it clears cached definition translations.">
+              <div className="flex bg-gray-800 rounded-lg p-1">
+                {([
+                  ['vi', 'Tiếng Việt'],
+                  ['en', 'English'],
+                ] as Array<[NativeLanguage, string]>).map(([value, label]) => (
+                  <button
+                    key={value}
+                    onClick={() => setNativeLanguage(value)}
+                    className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                      settings.nativeLanguage === value
+                        ? 'bg-gray-700 text-gray-100'
+                        : 'text-gray-500 hover:text-gray-300'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </Field>
+
             <Field label="Provider">
               <div className="flex bg-gray-800 rounded-lg p-1">
                 {(['anthropic', 'openai'] as AIProvider[]).map((p) => (
