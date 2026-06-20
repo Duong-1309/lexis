@@ -229,7 +229,7 @@ function Sidebar({
       </div>
 
       {/* Bottom nav buttons */}
-      <div className="p-3 border-t border-white/5 space-y-1">
+      <div className="p-3 border-t border-white/5 space-y-2">
         <button
           onClick={onStats}
           className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-500 hover:text-gray-300 hover:bg-white/5 rounded-md transition-colors"

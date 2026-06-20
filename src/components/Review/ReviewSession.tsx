@@ -324,8 +324,8 @@ function SessionShell({
 }) {
   return (
     <div className="fixed inset-0 z-40 flex flex-col bg-gray-950">
-      {/* Header */}
-      <div className="flex items-center justify-between px-6 py-3 border-b border-white/5 bg-gray-900">
+      {/* Header - pl-20 to avoid macOS window controls */}
+      <div className="flex items-center justify-between pl-20 pr-6 py-4 border-b border-white/5 bg-gray-900">
         <span className="text-sm font-medium text-gray-300">{deckName}</span>
         <div className="flex items-center gap-4">
           {remaining > 0 && (
