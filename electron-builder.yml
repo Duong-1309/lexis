@@ -7,14 +7,11 @@ directories:
   buildResources: buildResources
 
 files:
-  - dist/**
-  - dist-electron/**
-  - "!**/__tests__/**"
-  - "!**/*.test.*"
-  - "!**/*.spec.*"
-  - "!docs/**"
-  - "!scripts/**"
-  - "!assets/dicts/**"
+  - "package.json"
+  - "out"
+
+asarUnpack:
+  - "**/*.node"
 
 extraResources:
   - from: assets/dicts/
@@ -71,6 +68,7 @@ linux:
   category: Education
   synopsis: Sentence mining and Anki flashcard creation
 
-publish:
-  provider: github
-  releaseType: release
+# Publish config - uncomment when ready to release
+# publish:
+#   provider: github
+#   releaseType: release

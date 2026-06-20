@@ -59,23 +59,6 @@
     "vitest": "^1.6.0"
   },
   "build": {
-    "extends": null,
-    "files": [
-      "dist/**",
-      "dist-electron/**",
-      "!**/__tests__/**",
-      "!**/*.test.*",
-      "!docs/**",
-      "!scripts/**"
-    ],
-    "extraResources": [
-      {
-        "from": "assets/dicts/",
-        "to": "dicts/",
-        "filter": [
-          "*.db"
-        ]
-      }
-    ]
+    "extends": "electron-builder.yml"
   }
 }

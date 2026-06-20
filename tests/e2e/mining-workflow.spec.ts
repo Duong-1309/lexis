@@ -336,7 +336,7 @@ test.describe('mining workflow', () => {
             readerFont: 'sans-serif',
             theme: 'dark',
             checkForUpdates: true,
-            firstLaunchDone: false,
+            firstLaunchDone: true,
           }),
           set: async () => ok(undefined),
           testAIKey: async () => ok(false),

@@ -11,6 +11,7 @@ import { StatsDashboard } from './components/Stats/StatsDashboard'
 import { DeckBrowser } from './components/Decks/DeckBrowser'
 import { PatternDrillPanel } from './components/Drills/PatternDrillPanel'
 import { StatusBar } from './components/shared/StatusBar'
+import { WelcomeModal } from './components/Onboarding/WelcomeModal'
 import { useReaderStore } from './store/readerStore'
 import { useLookupStore } from './store/lookupStore'
 import { usePatternStore } from './store/patternStore'
@@ -237,6 +238,7 @@ export default function App() {
   const [showImport, setShowImport] = useState(false)
   const [showDeckPicker, setShowDeckPicker] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [showWelcome, setShowWelcome] = useState(false)
   const [activeView, setActiveView] = useState<ActiveView>('reader')
   const [activeReview, setActiveReview] = useState<{ deckId: number; deckName: string } | null>(null)
   const [decks, setDecks] = useState<Deck[]>([])
@@ -257,6 +259,12 @@ export default function App() {
   useEffect(() => {
     loadSources()
     loadDecks()
+    // Check if first launch
+    window.lexis.settings.get().then((r) => {
+      if (r.data && !r.data.firstLaunchDone) {
+        setShowWelcome(true)
+      }
+    })
   }, [])
 
   useEffect(() => {
@@ -394,6 +402,11 @@ export default function App() {
     setPatternRefreshKey((value) => value + 1)
   }
 
+  const handleWelcomeComplete = async () => {
+    await window.lexis.settings.set({ firstLaunchDone: true })
+    setShowWelcome(false)
+  }
+
   const totalDue = decks.reduce((sum, d) => sum + (d.dueCount ?? 0), 0)
   const isEpub = currentSource?.type === 'epub'
 
@@ -488,6 +501,8 @@ export default function App() {
 
       <CardBuilder onSaved={loadDecks} />
       <PatternBuilder decks={decks} onSaved={handlePatternSaved} />
+
+      {showWelcome && <WelcomeModal onComplete={handleWelcomeComplete} />}
     </div>
   )
 }

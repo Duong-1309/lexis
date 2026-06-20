@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, protocol, Notification } from 'electron'
 import path from 'path'
 import fs from 'fs'
+import windowStateKeeper from 'electron-window-state'
 import { randomUUID } from 'crypto'
 import log from 'electron-log'
 import { db } from './services/db'
@@ -103,9 +104,17 @@ function startReminderScheduler(): void {
 }
 
 function createWindow(): void {
+  // Restore window state (size + position)
+  const windowState = windowStateKeeper({
+    defaultWidth: 1280,
+    defaultHeight: 800,
+  })
+
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    x: windowState.x,
+    y: windowState.y,
+    width: windowState.width,
+    height: windowState.height,
     minWidth: 900,
     minHeight: 600,
     webPreferences: {
@@ -116,6 +125,9 @@ function createWindow(): void {
     titleBarStyle: 'hiddenInset',
     backgroundColor: '#1a1a2e',
   })
+
+  // Track window state changes
+  windowState.manage(mainWindow)
 
   if (process.env.ELECTRON_RENDERER_URL) {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
