@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import type { Deck, DrillAttempt, DrillEvaluation, DrillPrompt, Pattern } from '../../types'
+import { isTypingTarget } from '../../hooks/useHotkeys'
 
 interface PatternDrillPanelProps {
   decks: Deck[]
@@ -38,6 +39,7 @@ function PatternList({
   language,
   latestAttempts,
   languages,
+  searchInputRef,
   onQueryChange,
   onLanguageChange,
   onSelect,
@@ -48,6 +50,7 @@ function PatternList({
   language: string
   latestAttempts: Map<number, DrillAttempt>
   languages: string[]
+  searchInputRef: RefObject<HTMLInputElement>
   onQueryChange: (value: string) => void
   onLanguageChange: (value: string) => void
   onSelect: (pattern: Pattern) => void
@@ -58,10 +61,13 @@ function PatternList({
         <h2 className="text-sm font-semibold text-gray-200">Patterns</h2>
         <p className="text-xs text-gray-500 mt-0.5">{patterns.length} mined</p>
         <input
+          ref={searchInputRef}
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
           className="w-full px-3 py-2 bg-gray-800 border border-white/10 rounded-lg text-xs text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-blue-500/50"
           placeholder="Search patterns"
+          title="Search patterns (/)"
+          aria-keyshortcuts="/"
         />
         <select
           value={language}
@@ -142,6 +148,8 @@ function AttemptList({ attempts }: { attempts: DrillAttempt[] }) {
 }
 
 export function PatternDrillPanel({ decks, refreshKey = 0, onReviewDeck }: PatternDrillPanelProps) {
+  const answerRef = useRef<HTMLTextAreaElement | null>(null)
+  const searchInputRef = useRef<HTMLInputElement | null>(null)
   const [patterns, setPatterns] = useState<Pattern[]>([])
   const [selectedPattern, setSelectedPattern] = useState<Pattern | null>(null)
   const [query, setQuery] = useState('')
@@ -277,9 +285,14 @@ export function PatternDrillPanel({ decks, refreshKey = 0, onReviewDeck }: Patte
     setError(null)
   }
 
+  function focusAnswerSoon(): void {
+    window.requestAnimationFrame(() => answerRef.current?.focus())
+  }
+
   function selectPattern(pattern: Pattern): void {
     setSelectedPattern(pattern)
     resetPracticeState()
+    focusAnswerSoon()
   }
 
   function handleNextPattern(): void {
@@ -288,6 +301,103 @@ export function PatternDrillPanel({ decks, refreshKey = 0, onReviewDeck }: Patte
     const next = filteredPatterns[(currentIndex + 1 + filteredPatterns.length) % filteredPatterns.length]
     if (next) selectPattern(next)
   }
+
+  function handlePreviousPattern(): void {
+    if (filteredPatterns.length === 0) return
+    const currentIndex = filteredPatterns.findIndex((pattern) => pattern.id === selectedPattern?.id)
+    const safeIndex = currentIndex < 0 ? 0 : currentIndex
+    const previous = filteredPatterns[(safeIndex - 1 + filteredPatterns.length) % filteredPatterns.length]
+    if (previous) selectPattern(previous)
+  }
+
+  function handleReviewNow(): void {
+    if (!savedAttempt?.cardId || !savedDeckId || !onReviewDeck) return
+    onReviewDeck(savedDeckId)
+  }
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const isTyping = isTypingTarget(e.target)
+      const hasCommand = e.metaKey || e.ctrlKey
+      const key = e.key.toLowerCase()
+
+      if (hasCommand && e.key === 'Enter') {
+        e.preventDefault()
+        if (e.shiftKey) {
+          void handleCreateCard()
+        } else {
+          void handleEvaluate()
+        }
+        return
+      }
+
+      if (hasCommand && e.key === 'ArrowRight') {
+        e.preventDefault()
+        handleNextPattern()
+        return
+      }
+
+      if (hasCommand && e.key === 'ArrowLeft') {
+        e.preventDefault()
+        handlePreviousPattern()
+        return
+      }
+
+      if (isTyping) {
+        if (e.key === 'Escape' && e.target === searchInputRef.current) {
+          e.preventDefault()
+          setQuery('')
+          searchInputRef.current?.blur()
+        }
+        return
+      }
+
+      if (e.key === '/') {
+        e.preventDefault()
+        searchInputRef.current?.focus()
+        return
+      }
+
+      if (key === 'f') {
+        e.preventDefault()
+        answerRef.current?.focus()
+        return
+      }
+
+      if (key === 'j' || e.key === 'ArrowDown') {
+        e.preventDefault()
+        handleNextPattern()
+        return
+      }
+
+      if (key === 'k' || e.key === 'ArrowUp') {
+        e.preventDefault()
+        handlePreviousPattern()
+        return
+      }
+
+      if (key === 'r' && savedAttempt?.cardId) {
+        e.preventDefault()
+        handleReviewNow()
+      }
+    }
+
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [
+    answer,
+    creatingCard,
+    currentAnswerAlreadyCarded,
+    filteredPatterns,
+    loading,
+    savedAttempt,
+    savedDeckId,
+    selectedPattern,
+    selectedPrompt,
+    promptText,
+    answerChangedAfterCheck,
+    onReviewDeck,
+  ])
 
   async function handleEvaluate(): Promise<void> {
     if (!selectedPattern || loading) return
@@ -389,6 +499,7 @@ export function PatternDrillPanel({ decks, refreshKey = 0, onReviewDeck }: Patte
         language={languageFilter}
         latestAttempts={latestAttempts}
         languages={languages}
+        searchInputRef={searchInputRef}
         onQueryChange={setQuery}
         onLanguageChange={setLanguageFilter}
         onSelect={selectPattern}
@@ -409,6 +520,8 @@ export function PatternDrillPanel({ decks, refreshKey = 0, onReviewDeck }: Patte
                     onClick={handleNextPattern}
                     disabled={filteredPatterns.length <= 1}
                     className="px-3 py-1.5 text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-md transition-colors disabled:opacity-40"
+                    title="Next pattern (J)"
+                    aria-keyshortcuts="J"
                   >
                     Next Pattern
                   </button>
@@ -445,6 +558,7 @@ export function PatternDrillPanel({ decks, refreshKey = 0, onReviewDeck }: Patte
             <div>
               <label className="block text-xs font-medium text-gray-400 mb-1">Your Sentence</label>
               <textarea
+                ref={answerRef}
                 value={answer}
                 onChange={(e) => {
                   setAnswer(e.target.value)
@@ -452,6 +566,8 @@ export function PatternDrillPanel({ decks, refreshKey = 0, onReviewDeck }: Patte
                 }}
                 className="w-full h-28 px-3 py-2 bg-gray-900 border border-white/10 rounded-lg text-sm text-gray-100 resize-none focus:outline-none focus:border-blue-500/50"
                 placeholder="Write a new sentence using this pattern"
+                title="Your sentence (F)"
+                aria-keyshortcuts="F"
               />
               <div className="mt-3 rounded-lg border border-white/5 bg-gray-950/50 p-3 space-y-3">
                 <p className="text-xs text-gray-500 line-clamp-2">{promptText}</p>
@@ -464,39 +580,45 @@ export function PatternDrillPanel({ decks, refreshKey = 0, onReviewDeck }: Patte
                     ) : null}
                   </div>
                   <div className="flex min-w-0 flex-wrap items-center gap-2 sm:justify-end">
-                  {decks.length > 0 && (
-                    <select
-                      value={deckId ?? ''}
-                      onChange={(e) => setDeckId(Number(e.target.value))}
-                      className="min-w-0 max-w-full sm:max-w-48 px-2 py-2 bg-gray-800 border border-white/10 rounded-lg text-xs text-gray-200"
-                    >
-                      {decks.map((deck) => (
-                        <option key={deck.id} value={deck.id}>{deck.name}</option>
-                      ))}
-                    </select>
-                  )}
-                  <button
-                    onClick={() => void handleCreateCard()}
-                    disabled={!canMakeCard || currentAnswerAlreadyCarded}
-                    className="shrink-0 px-4 py-2 text-sm font-medium bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg transition-colors disabled:opacity-50"
-                  >
-                    {currentAnswerAlreadyCarded ? 'Card Saved' : creatingCard ? 'Making...' : 'Make Card'}
-                  </button>
-                  {savedAttempt?.cardId && savedDeckId && onReviewDeck && (
+                    {decks.length > 0 && (
+                      <select
+                        value={deckId ?? ''}
+                        onChange={(e) => setDeckId(Number(e.target.value))}
+                        className="min-w-0 max-w-full sm:max-w-48 px-2 py-2 bg-gray-800 border border-white/10 rounded-lg text-xs text-gray-200"
+                      >
+                        {decks.map((deck) => (
+                          <option key={deck.id} value={deck.id}>{deck.name}</option>
+                        ))}
+                      </select>
+                    )}
                     <button
-                      onClick={() => onReviewDeck(savedDeckId)}
-                      className="shrink-0 px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
+                      onClick={() => void handleCreateCard()}
+                      disabled={!canMakeCard || currentAnswerAlreadyCarded}
+                      className="shrink-0 px-4 py-2 text-sm font-medium bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg transition-colors disabled:opacity-50"
+                      title="Make card (Cmd/Ctrl+Shift+Enter)"
+                      aria-keyshortcuts="Meta+Shift+Enter Control+Shift+Enter"
                     >
-                      Review Now
+                      {currentAnswerAlreadyCarded ? 'Card Saved' : creatingCard ? 'Making...' : 'Make Card'}
                     </button>
-                  )}
-                  <button
-                    onClick={() => void handleEvaluate()}
-                    disabled={loading || !answer.trim()}
-                    className="shrink-0 px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors disabled:opacity-50"
-                  >
-                    {loading ? 'Checking...' : 'Check Answer'}
-                  </button>
+                    {savedAttempt?.cardId && savedDeckId && onReviewDeck && (
+                      <button
+                        onClick={() => onReviewDeck(savedDeckId)}
+                        className="shrink-0 px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
+                        title="Review now (R)"
+                        aria-keyshortcuts="R"
+                      >
+                        Review Now
+                      </button>
+                    )}
+                    <button
+                      onClick={() => void handleEvaluate()}
+                      disabled={loading || !answer.trim()}
+                      className="shrink-0 px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors disabled:opacity-50"
+                      title="Check answer (Cmd/Ctrl+Enter)"
+                      aria-keyshortcuts="Meta+Enter Control+Enter"
+                    >
+                      {loading ? 'Checking...' : 'Check Answer'}
+                    </button>
                   </div>
                 </div>
               </div>
