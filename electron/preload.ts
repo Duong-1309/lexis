@@ -30,6 +30,8 @@ import type {
   UserSettings,
   IPCResult,
   LexisAPI,
+  UpdateInfo,
+  UpdateProgress,
 } from '../src/types/index'
 
 const lexisAPI: LexisAPI = {
@@ -176,6 +178,39 @@ const lexisAPI: LexisAPI = {
     set: (updates) => ipcRenderer.invoke('settings:set', updates),
     testAIKey: (apiKey, provider) => ipcRenderer.invoke('settings:test-key', apiKey, provider),
     selectDirectory: () => ipcRenderer.invoke('settings:select-dir'),
+  },
+
+  updater: {
+    getVersion: () => ipcRenderer.invoke('updater:get-version'),
+    checkForUpdates: () => ipcRenderer.invoke('updater:check'),
+    downloadUpdate: () => ipcRenderer.invoke('updater:download'),
+    installUpdate: () => ipcRenderer.invoke('updater:install'),
+    onChecking: (callback) => {
+      ipcRenderer.on('updater:checking', () => callback())
+    },
+    onAvailable: (callback) => {
+      ipcRenderer.on('updater:available', (_event, info: UpdateInfo) => callback(info))
+    },
+    onNotAvailable: (callback) => {
+      ipcRenderer.on('updater:not-available', (_event, info: { version: string }) => callback(info))
+    },
+    onProgress: (callback) => {
+      ipcRenderer.on('updater:progress', (_event, progress: UpdateProgress) => callback(progress))
+    },
+    onDownloaded: (callback) => {
+      ipcRenderer.on('updater:downloaded', (_event, info: UpdateInfo) => callback(info))
+    },
+    onError: (callback) => {
+      ipcRenderer.on('updater:error', (_event, error: string) => callback(error))
+    },
+    removeListeners: () => {
+      ipcRenderer.removeAllListeners('updater:checking')
+      ipcRenderer.removeAllListeners('updater:available')
+      ipcRenderer.removeAllListeners('updater:not-available')
+      ipcRenderer.removeAllListeners('updater:progress')
+      ipcRenderer.removeAllListeners('updater:downloaded')
+      ipcRenderer.removeAllListeners('updater:error')
+    },
   },
 }
 

@@ -4,6 +4,7 @@ import fs from 'fs'
 import windowStateKeeper from 'electron-window-state'
 import { randomUUID } from 'crypto'
 import log from 'electron-log'
+import { autoUpdater, UpdateInfo } from 'electron-updater'
 import { db } from './services/db'
 import { dictService } from './services/dictionary'
 import { audioService } from './services/audio'
@@ -36,6 +37,82 @@ import type {
 
 let mainWindow: BrowserWindow | null = null
 let reminderTimer: NodeJS.Timeout | null = null
+let updateCheckTimer: NodeJS.Timeout | null = null
+
+// ─── Auto-updater setup ─────────────────────────────────────────────────────────
+
+function setupAutoUpdater(): void {
+  autoUpdater.logger = log
+  autoUpdater.autoDownload = false
+  autoUpdater.autoInstallOnAppQuit = true
+
+  autoUpdater.on('checking-for-update', () => {
+    log.info('Checking for update...')
+    mainWindow?.webContents.send('updater:checking')
+  })
+
+  autoUpdater.on('update-available', (info: UpdateInfo) => {
+    log.info('Update available:', info.version)
+    mainWindow?.webContents.send('updater:available', {
+      version: info.version,
+      releaseDate: info.releaseDate,
+      releaseNotes: info.releaseNotes,
+    })
+  })
+
+  autoUpdater.on('update-not-available', (info: UpdateInfo) => {
+    log.info('Update not available, current version is latest:', info.version)
+    mainWindow?.webContents.send('updater:not-available', {
+      version: info.version,
+    })
+  })
+
+  autoUpdater.on('download-progress', (progress) => {
+    log.info(`Download progress: ${progress.percent.toFixed(1)}%`)
+    mainWindow?.webContents.send('updater:progress', {
+      percent: progress.percent,
+      bytesPerSecond: progress.bytesPerSecond,
+      transferred: progress.transferred,
+      total: progress.total,
+    })
+  })
+
+  autoUpdater.on('update-downloaded', (info: UpdateInfo) => {
+    log.info('Update downloaded:', info.version)
+    mainWindow?.webContents.send('updater:downloaded', {
+      version: info.version,
+      releaseDate: info.releaseDate,
+      releaseNotes: info.releaseNotes,
+    })
+  })
+
+  autoUpdater.on('error', (error) => {
+    log.error('Auto-updater error:', error)
+    mainWindow?.webContents.send('updater:error', error.message)
+  })
+}
+
+function startUpdateChecker(): void {
+  const settings = getSettings()
+  if (!settings.checkForUpdates) return
+
+  // Check on startup (after 10s delay)
+  setTimeout(() => {
+    autoUpdater.checkForUpdates().catch((err) => log.error('Update check failed:', err))
+  }, 10_000)
+
+  // Check every 4 hours
+  if (updateCheckTimer) clearInterval(updateCheckTimer)
+  updateCheckTimer = setInterval(
+    () => {
+      const s = getSettings()
+      if (s.checkForUpdates) {
+        autoUpdater.checkForUpdates().catch((err) => log.error('Update check failed:', err))
+      }
+    },
+    4 * 60 * 60 * 1000,
+  )
+}
 
 function todayKey(): string {
   return new Date().toISOString().slice(0, 10)
@@ -588,6 +665,36 @@ function setupIPCHandlers(): void {
     })
     return { data: result.canceled ? null : result.filePaths[0], error: null }
   })
+
+  // ─── updater ────────────────────────────────────────────────────────────────
+  ipcMain.handle('updater:get-version', () =>
+    wrapResult(() => app.getVersion()),
+  )
+
+  ipcMain.handle('updater:check', () =>
+    wrapResult(async () => {
+      const result = await autoUpdater.checkForUpdates()
+      return result?.updateInfo
+        ? {
+            version: result.updateInfo.version,
+            releaseDate: result.updateInfo.releaseDate,
+            releaseNotes: result.updateInfo.releaseNotes,
+          }
+        : null
+    }),
+  )
+
+  ipcMain.handle('updater:download', () =>
+    wrapResult(async () => {
+      await autoUpdater.downloadUpdate()
+    }),
+  )
+
+  ipcMain.handle('updater:install', () =>
+    wrapResult(() => {
+      autoUpdater.quitAndInstall(false, true)
+    }),
+  )
 }
 
 // ─── App lifecycle ────────────────────────────────────────────────────────────
@@ -628,12 +735,15 @@ app.whenReady().then(() => {
   setupIPCHandlers()
   createWindow()
   startReminderScheduler()
+  setupAutoUpdater()
+  startUpdateChecker()
 
   log.info('Lexis app started')
 })
 
 app.on('before-quit', () => {
   if (reminderTimer) clearInterval(reminderTimer)
+  if (updateCheckTimer) clearInterval(updateCheckTimer)
 })
 
 app.on('window-all-closed', () => {

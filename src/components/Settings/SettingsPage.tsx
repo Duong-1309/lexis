@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
-import type { AIProvider, CardTemplate, NativeLanguage, UserSettings } from '../../types'
+import type { AIProvider, CardTemplate, NativeLanguage, UserSettings, UpdateInfo, UpdateProgress } from '../../types'
 import { COMMON_TIME_ZONES, DEFAULT_TIME_ZONE } from '../../utils/time'
 import { DictionaryManager } from './DictionaryManager'
+
+type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error' | 'up-to-date'
 
 interface SettingsPageProps {
   onClose: () => void
@@ -126,6 +128,48 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
+  // Update state
+  const [appVersion, setAppVersion] = useState<string>('')
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>('idle')
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null)
+  const [updateProgress, setUpdateProgress] = useState<UpdateProgress | null>(null)
+  const [updateError, setUpdateError] = useState<string | null>(null)
+
+  useEffect(() => {
+    window.lexis.updater.getVersion().then((r) => {
+      if (r.data) setAppVersion(r.data)
+    })
+
+    // Setup update listeners
+    window.lexis.updater.onChecking(() => {
+      setUpdateStatus('checking')
+      setUpdateError(null)
+    })
+    window.lexis.updater.onAvailable((info) => {
+      setUpdateStatus('available')
+      setUpdateInfo(info)
+    })
+    window.lexis.updater.onNotAvailable(() => {
+      setUpdateStatus('up-to-date')
+    })
+    window.lexis.updater.onProgress((progress) => {
+      setUpdateStatus('downloading')
+      setUpdateProgress(progress)
+    })
+    window.lexis.updater.onDownloaded((info) => {
+      setUpdateStatus('ready')
+      setUpdateInfo(info)
+    })
+    window.lexis.updater.onError((error) => {
+      setUpdateStatus('error')
+      setUpdateError(error)
+    })
+
+    return () => {
+      window.lexis.updater.removeListeners()
+    }
+  }, [])
+
   useEffect(() => {
     window.lexis.settings.get().then((r) => {
       if (r.data) {
@@ -143,6 +187,21 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
     setStatus('testing')
     const r = await window.lexis.settings.testAIKey(key.trim(), provider)
     setStatus(r.data ? 'ok' : 'fail')
+  }
+
+  const handleCheckForUpdates = async () => {
+    setUpdateStatus('checking')
+    setUpdateError(null)
+    await window.lexis.updater.checkForUpdates()
+  }
+
+  const handleDownloadUpdate = async () => {
+    setUpdateStatus('downloading')
+    await window.lexis.updater.downloadUpdate()
+  }
+
+  const handleInstallUpdate = () => {
+    window.lexis.updater.installUpdate()
   }
 
   const handleSave = async () => {
@@ -230,6 +289,84 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
             <div className="pt-2">
               <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Dictionaries</h4>
               <DictionaryManager />
+            </div>
+
+            <div className="border-t border-white/5 pt-6 mt-6">
+              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">About & Updates</h4>
+              <div className="bg-gray-800/60 border border-white/10 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <p className="text-sm font-medium text-gray-200">Lexis</p>
+                    <p className="text-xs text-gray-500">Version {appVersion || '...'}</p>
+                  </div>
+                  {updateStatus === 'idle' && (
+                    <button
+                      onClick={handleCheckForUpdates}
+                      className="px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg transition-colors"
+                    >
+                      Check for updates
+                    </button>
+                  )}
+                  {updateStatus === 'checking' && (
+                    <span className="text-xs text-gray-500">Checking...</span>
+                  )}
+                  {updateStatus === 'up-to-date' && (
+                    <span className="text-xs text-green-400">Up to date</span>
+                  )}
+                  {updateStatus === 'available' && (
+                    <button
+                      onClick={handleDownloadUpdate}
+                      className="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
+                    >
+                      Download v{updateInfo?.version}
+                    </button>
+                  )}
+                  {updateStatus === 'downloading' && (
+                    <span className="text-xs text-blue-400">
+                      Downloading... {updateProgress ? `${updateProgress.percent.toFixed(0)}%` : ''}
+                    </span>
+                  )}
+                  {updateStatus === 'ready' && (
+                    <button
+                      onClick={handleInstallUpdate}
+                      className="px-3 py-1.5 text-xs bg-green-600 hover:bg-green-500 text-white rounded-lg transition-colors"
+                    >
+                      Restart to update
+                    </button>
+                  )}
+                  {updateStatus === 'error' && (
+                    <button
+                      onClick={handleCheckForUpdates}
+                      className="px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg transition-colors"
+                    >
+                      Retry
+                    </button>
+                  )}
+                </div>
+
+                {updateStatus === 'downloading' && updateProgress && (
+                  <div className="w-full bg-gray-700 rounded-full h-1.5 mb-2">
+                    <div
+                      className="bg-blue-500 h-1.5 rounded-full transition-all"
+                      style={{ width: `${updateProgress.percent}%` }}
+                    />
+                  </div>
+                )}
+
+                {updateStatus === 'error' && updateError && (
+                  <p className="text-xs text-red-400">{updateError}</p>
+                )}
+
+                <label className="flex items-center gap-2 mt-2">
+                  <input
+                    type="checkbox"
+                    className="accent-blue-500"
+                    checked={settings.checkForUpdates}
+                    onChange={(e) => setLocalSettings({ ...settings, checkForUpdates: e.target.checked })}
+                  />
+                  <span className="text-xs text-gray-400">Automatically check for updates</span>
+                </label>
+              </div>
             </div>
           </div>
         )

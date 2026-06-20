@@ -88,7 +88,7 @@ linux:
   category: Education
   synopsis: Sentence mining and Anki flashcard creation
 
-# Publish config - uncomment when ready to release
-# publish:
-#   provider: github
-#   releaseType: release
+# Publish config for auto-update
+publish:
+  provider: github
+  releaseType: release

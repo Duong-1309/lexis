@@ -1160,6 +1160,21 @@ sprint is about habit formation and user experience flow, not monetization.
 - Fixed modal size (680x520px) for consistency.
 - Reader tab includes live font preview.
 
+#### Task 10.12 — Auto-Update System ✅
+
+- **electron-builder publish config**: Enabled GitHub Releases as update provider.
+- **Auto-updater initialization**: `electron-updater` checks for updates on startup (10s delay) and every 4 hours.
+- **IPC handlers**: `updater:get-version`, `updater:check`, `updater:download`, `updater:install`.
+- **Preload API**: `window.lexis.updater` with methods and event listeners.
+- **Settings UI**: "About & Updates" section in General tab showing:
+  - App version
+  - Check for updates button
+  - Download/Install buttons when update available
+  - Progress bar during download
+  - Toggle for automatic update checks
+- **Flow**: Check → Download (differential via blockmap) → Restart to install.
+- **Release process**: Tag + push to GitHub → Create Release → Upload artifacts → Users auto-notified.
+
 ### Sprint 10 Acceptance Tests
 
 - [x] Dashboard shows one clear next action for a returning user
@@ -1177,6 +1192,7 @@ sprint is about habit formation and user experience flow, not monetization.
 - [x] Delete source button works with confirmation
 - [x] Dictionary build-from-source works for JMdict and CEDICT
 - [x] Settings UI uses sidebar navigation
+- [x] Auto-update UI shows version and update status in Settings
 
 ---
 

@@ -434,6 +434,21 @@ export interface AudioResult {
   source: 'forvo' | 'tts' | 'cache'
 }
 
+// ─── Auto-updater ────────────────────────────────────────────────────────────
+
+export interface UpdateInfo {
+  version: string
+  releaseDate?: string
+  releaseNotes?: string | { version: string; note: string }[]
+}
+
+export interface UpdateProgress {
+  percent: number
+  bytesPerSecond: number
+  transferred: number
+  total: number
+}
+
 export type AIProvider = 'anthropic' | 'openai'
 
 export interface SchedulingSettings {
@@ -603,6 +618,20 @@ export interface SettingsAPI {
   selectDirectory(): Promise<IPCResult<string | null>>
 }
 
+export interface UpdaterAPI {
+  getVersion(): Promise<IPCResult<string>>
+  checkForUpdates(): Promise<IPCResult<UpdateInfo | null>>
+  downloadUpdate(): Promise<IPCResult<void>>
+  installUpdate(): Promise<IPCResult<void>>
+  onChecking(callback: () => void): void
+  onAvailable(callback: (info: UpdateInfo) => void): void
+  onNotAvailable(callback: (info: { version: string }) => void): void
+  onProgress(callback: (progress: UpdateProgress) => void): void
+  onDownloaded(callback: (info: UpdateInfo) => void): void
+  onError(callback: (error: string) => void): void
+  removeListeners(): void
+}
+
 export interface LexisAPI {
   media: MediaAPI
   reader: ReaderAPI
@@ -616,6 +645,7 @@ export interface LexisAPI {
   stats: StatsAPI
   missions: MissionsAPI
   settings: SettingsAPI
+  updater: UpdaterAPI
 }
 
 declare global {
