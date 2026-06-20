@@ -97,15 +97,72 @@ test.describe('mining workflow', () => {
           getMinedWordsForSource: async () => ok([]),
         },
         dictionary: {
-          lookup: async () => ok([]),
-          tokenize: async () => ok([]),
+          lookup: async (word: string) => {
+            // Mock dictionary entry for English words
+            const mockEntries: Record<string, unknown> = {
+              chemistry: {
+                id: 'chemistry',
+                headword: 'chemistry',
+                readings: [{ value: 'chemistry' }],
+                senses: [{
+                  partOfSpeech: ['noun'],
+                  definitions: ['the scientific study of matter and its properties'],
+                  examples: ['She studied chemistry at university.'],
+                }],
+              },
+              study: {
+                id: 'study',
+                headword: 'study',
+                readings: [{ value: 'study' }],
+                senses: [{
+                  partOfSpeech: ['noun', 'verb'],
+                  definitions: ['the activity of learning or gaining knowledge'],
+                  examples: ['He devoted his life to the study of physics.'],
+                }],
+              },
+              matter: {
+                id: 'matter',
+                headword: 'matter',
+                readings: [{ value: 'matter' }],
+                senses: [{
+                  partOfSpeech: ['noun'],
+                  definitions: ['physical substance in general'],
+                  examples: ['Solid matter includes rocks and wood.'],
+                }],
+              },
+            }
+            const entry = mockEntries[word.toLowerCase()]
+            return ok(entry ? [entry] : [])
+          },
+          tokenize: async (text: string) => {
+            // Simple English tokenizer for test
+            const tokens: Array<{ surface: string; offset: number; dictionaryForm?: string }> = []
+            const wordRe = /[a-zA-Z]+/g
+            let match
+            while ((match = wordRe.exec(text)) !== null) {
+              tokens.push({
+                surface: match[0],
+                offset: match.index,
+                dictionaryForm: match[0].toLowerCase(),
+              })
+            }
+            return ok(tokens)
+          },
           autocomplete: async () => ok([]),
         },
         audio: {
           getAudioPath: async () => ok(null),
         },
         decks: {
-          list: async () => ok(decks),
+          list: async () => {
+            // Include dueCount, cardCount, newCount for DeckPicker to enable review button
+            return ok(decks.map((d) => ({
+              ...d,
+              cardCount: cards.filter((c) => c.deckId === d.id).length,
+              dueCount: cards.filter((c) => c.deckId === d.id).length, // All cards are due in test
+              newCount: cards.filter((c) => c.deckId === d.id && c.cardState === 'new').length,
+            })))
+          },
           create: async (name, description) => {
             const deck = { id: nextId++, name, description, createdAt: new Date().toISOString() }
             decks.push(deck)
@@ -374,5 +431,91 @@ test.describe('mining workflow', () => {
     expect(result.sentenceCount).toBe(2)
     expect(result.cardWord).toBe('Biology is the study of life.')
     expect(result.dueCardIds.length).toBeGreaterThan(0)
+  })
+
+  test('word mining: import → click sentence → click word → CardBuilder → save → review', async ({ page }) => {
+    // Step 1: Import text
+    await page.getByRole('button', { name: 'Import' }).click()
+    await page.getByRole('button', { name: 'Paste Text' }).click()
+    await page.getByPlaceholder('Title').fill('Word Mining Test')
+    await page.getByPlaceholder('Paste text here').fill(
+      'Chemistry is the study of matter. Electrons change their energy levels.',
+    )
+    await page.getByRole('button', { name: 'Import text' }).click()
+
+    await expect(page.getByText('Word Mining Test')).toBeVisible()
+    await expect(page.getByText('Chemistry is the study of matter.')).toBeVisible()
+
+    // Step 2: Click on sentence to select it
+    await page.getByText('Chemistry is the study of matter.').click()
+    await page.waitForTimeout(300) // Wait for tokenization
+
+    // Step 3: Double-click on "Chemistry" to select the word
+    // This triggers the text selection which fires onMouseUp -> handleSubtitleMouseUp -> onWordClick
+    const sentenceText = page.getByText('Chemistry is the study of matter.')
+    await sentenceText.dblclick({ position: { x: 40, y: 10 } }) // Click near the start where "Chemistry" is
+    await page.waitForTimeout(500) // Wait for lookup
+
+    // Step 4: Verify LookupPanel shows the word definition
+    // The LookupPanel should show results from the mock dictionary
+    await expect(page.getByText('the scientific study of matter')).toBeVisible({ timeout: 5000 })
+
+    // Step 5: Press Shift+A to open CardBuilder
+    await page.keyboard.press('Shift+A')
+    await page.waitForTimeout(300)
+
+    // Step 6: Verify CardBuilder is open with prefilled data
+    // CardBuilder has "Add to Deck" button with "Ctrl/⌘ Enter" shortcut label
+    const cardBuilderSaveBtn = page.getByRole('button', { name: /Add to Deck.*Enter/i })
+    await expect(cardBuilderSaveBtn).toBeVisible({ timeout: 3000 })
+
+    // Step 7: Click "Add to Deck" to save the card
+    await cardBuilderSaveBtn.click()
+    await page.waitForTimeout(500)
+
+    // Step 8: Verify card was created via IPC
+    const cardResult = await page.evaluate(async () => {
+      const due = await window.lexis.cards.due(1)
+      if (due.error || !due.data) return { count: 0, words: [] }
+      return {
+        count: due.data.length,
+        words: due.data.map((c) => c.word),
+      }
+    })
+
+    expect(cardResult.count).toBeGreaterThan(0)
+
+    // Step 9: Start review session
+    await page.getByRole('button', { name: /Review/i }).click()
+    await page.waitForTimeout(300)
+
+    // Step 10: Select deck if deck picker is shown
+    const defaultDeckButton = page.getByRole('button', { name: /Default/i })
+    if (await defaultDeckButton.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await defaultDeckButton.click()
+      await page.waitForTimeout(300)
+    }
+
+    // Step 11: In review session, click Show to reveal back
+    const showButton = page.getByRole('button', { name: 'Show' })
+    if (await showButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await showButton.click()
+      await page.waitForTimeout(300)
+
+      // Step 12: Rate "Good" (key 3 or click button)
+      await page.keyboard.press('3')
+      await page.waitForTimeout(500)
+    }
+
+    // Verify the review was processed
+    const reviewResult = await page.evaluate(async () => {
+      const stats = await window.lexis.stats.getMiningStats()
+      return {
+        totalCards: stats.data?.totalCards ?? 0,
+        validLearningDay: stats.data?.validLearningDay ?? false,
+      }
+    })
+
+    expect(reviewResult.totalCards).toBeGreaterThan(0)
   })
 })

@@ -958,7 +958,7 @@ Wire up `electron/services/parsers/web.ts` to: ✅
 - [x] Plain text paste creates readable source in library
 - [x] Web URL import extracts article
 - [x] Settings: changing native language clears translation cache
-- [ ] E2E word mining passes
+- [x] E2E word mining passes
 - [x] E2E pattern drill MVP passes
 
 ---
