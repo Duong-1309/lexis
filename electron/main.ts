@@ -15,6 +15,9 @@ import { parsePlainText } from './services/parsers/text'
 import { fetchWebArticle } from './services/parsers/web'
 import { calculateNextReview } from './services/srs'
 import { getSettings, setSettings } from './services/settings'
+import { getDailyMissions, claimMissionReward } from './services/missions'
+import { dictDownloadService } from './services/dictionary-download'
+import type { DictionaryId } from '../src/types/index'
 import type {
   IPCResult,
   MediaSource,
@@ -346,6 +349,46 @@ function setupIPCHandlers(): void {
     wrapResult(() => dictService.autocomplete(prefix, lang)),
   )
 
+  ipcMain.handle('dictionary:list-dicts', () =>
+    wrapResult(() => dictDownloadService.listDictionaries()),
+  )
+
+  ipcMain.handle('dictionary:download', async (_event, id: DictionaryId) =>
+    wrapResult(async () => {
+      await dictDownloadService.downloadDictionary(id, mainWindow)
+      // After download, open the dictionary
+      const dictIdToLang: Record<DictionaryId, Language> = {
+        jmdict: 'ja',
+        cedict: 'zh',
+        wordnet: 'en',
+      }
+      const lang = dictIdToLang[id]
+      const dictPath = dictDownloadService.getDictionaryPath(id)
+      if (dictPath && lang) {
+        dictService.openDictionary(lang, dictPath)
+      }
+    }),
+  )
+
+  ipcMain.handle('dictionary:delete', (_event, id: DictionaryId) =>
+    wrapResult(() => {
+      const dictIdToLang: Record<DictionaryId, Language> = {
+        jmdict: 'ja',
+        cedict: 'zh',
+        wordnet: 'en',
+      }
+      const lang = dictIdToLang[id]
+      if (lang) {
+        dictService.closeDictionary(lang)
+      }
+      dictDownloadService.deleteDictionary(id)
+    }),
+  )
+
+  ipcMain.handle('dictionary:is-available', (_event, lang: Language) =>
+    wrapResult(() => dictDownloadService.isDictionaryAvailableForLanguage(lang)),
+  )
+
   // ─── audio ───────────────────────────────────────────────────────────────────
   ipcMain.handle('audio:get-path', (_event, word: string, lang: Language, reading?: string) =>
     wrapResult(() => audioService.getAudio(word, lang, reading)),
@@ -504,6 +547,12 @@ function setupIPCHandlers(): void {
     wrapResult(() => db.getMinedCountByDay(days)),
   )
 
+  // ─── missions ───────────────────────────────────────────────────────────────
+  ipcMain.handle('missions:get-daily', () => wrapResult(() => getDailyMissions(db)))
+  ipcMain.handle('missions:claim-reward', (_event, missionId: string) =>
+    wrapResult(() => claimMissionReward(db, missionId)),
+  )
+
   // ─── settings ────────────────────────────────────────────────────────────────
   ipcMain.handle('settings:get', () => wrapResult(() => getSettings()))
 
@@ -554,18 +603,22 @@ app.whenReady().then(() => {
   db.runMigrations()
 
   audioService.initialize(userDataPath)
+  dictDownloadService.initialize(userDataPath)
 
   const settings = getSettings()
   aiService.initialize(settings.aiProvider, settings.anthropicApiKey, settings.openaiApiKey)
 
-  // Open dictionaries if built
-  const dictsDir = app.isPackaged
+  // Dictionary paths: user downloaded (priority) and bundled (fallback)
+  const userDictsDir = dictDownloadService.getDictsDir()
+  const bundledDictsDir = app.isPackaged
     ? path.join(process.resourcesPath, 'dicts')
     : path.join(__dirname, '../../assets/dicts')
-  dictService.setDictsDir(dictsDir)
-  dictService.openDictionary('ja', path.join(dictsDir, 'jmdict.db'))
-  dictService.openDictionary('zh', path.join(dictsDir, 'cedict.db'))
-  dictService.openDictionary('en', path.join(dictsDir, 'wordnet.db'))
+  dictService.setDictsDir(userDictsDir)
+
+  // Try to open dictionaries from downloaded or bundled location
+  dictService.tryOpenDictionary('ja', userDictsDir, bundledDictsDir)
+  dictService.tryOpenDictionary('zh', userDictsDir, bundledDictsDir)
+  dictService.tryOpenDictionary('en', userDictsDir, bundledDictsDir)
 
   protocol.registerFileProtocol('lexis-audio', (request, callback) => {
     const filename = decodeURIComponent(request.url.replace('lexis-audio://', ''))

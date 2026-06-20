@@ -17,6 +17,9 @@ interface ReaderPanelProps {
   onSelectSentence: (sentence: Sentence) => void
   onWordClick: (word: string, dictionaryForm: string) => void
   onMinePattern?: (sentence: Sentence) => void
+  onProgressChange?: (position: number, chapterId?: string) => void
+  initialPosition?: number
+  initialChapterId?: string
   isEpub?: boolean
   chapters?: EPUBChapter[]
   selectedChapterId?: string | null
@@ -264,6 +267,9 @@ function EPUBReader({
   language,
   onSelectChapter,
   onEpubWordSelect,
+  onProgressChange,
+  initialChapterId,
+  initialPage,
   allCardsMap,
   minedPatterns,
 }: {
@@ -274,13 +280,36 @@ function EPUBReader({
   language: Language
   onSelectChapter?: (id: string) => void
   onEpubWordSelect?: (word: string) => void
+  onProgressChange?: (position: number, chapterId: string) => void
+  initialChapterId?: string
+  initialPage?: number
   allCardsMap?: Map<string, MinedCardEntry>
   minedPatterns?: Pattern[]
 }) {
+  const [initialChapterLoaded, setInitialChapterLoaded] = useState(false)
+
+  // Auto-load initial chapter
+  useEffect(() => {
+    if (initialChapterLoaded || chapters.length === 0) return
+    if (initialChapterId && !selectedChapterId) {
+      const chapterExists = chapters.some(ch => ch.id === initialChapterId)
+      if (chapterExists) {
+        onSelectChapter?.(initialChapterId)
+      }
+    }
+    setInitialChapterLoaded(true)
+  }, [chapters, initialChapterId, selectedChapterId, onSelectChapter, initialChapterLoaded])
+
+  // Reset when chapters list changes (new book)
+  useEffect(() => {
+    setInitialChapterLoaded(false)
+  }, [chapters])
+
   const contentRef = useRef<HTMLDivElement>(null)
   const highlightSpanRef = useRef<HTMLSpanElement | null>(null)
   const [currentPage, setCurrentPage] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
+  const [initialPageRestored, setInitialPageRestored] = useState(false)
   const [tooltip, setTooltip] = useState<{ entry: MinedCardEntry; x: number; y: number } | null>(null)
   const [patternTooltip, setPatternTooltip] = useState<{ entry: MinedPatternEntry; x: number; y: number } | null>(null)
   const minedPatternMap = useMemo(() => {
@@ -336,12 +365,40 @@ function EPUBReader({
     if (!chapterHtml) return
     clearHighlight()
     setCurrentPage(0)
+    setInitialPageRestored(false)
     const t = setTimeout(() => {
-      contentRef.current?.scrollTo({ top: 0 })
       calcPages()
     }, 80)
     return () => clearTimeout(t)
   }, [chapterHtml, calcPages, clearHighlight])
+
+  // Restore initial page position after chapter loads
+  useEffect(() => {
+    if (!chapterHtml || initialPageRestored || totalPages <= 1) return
+    // Only restore if this is the initial chapter being loaded
+    if (initialPage !== undefined && initialPage > 0 && selectedChapterId === initialChapterId) {
+      const t = setTimeout(() => {
+        const el = contentRef.current
+        if (el && initialPage < totalPages) {
+          el.scrollTo({ top: initialPage * el.clientHeight, behavior: 'auto' })
+          setCurrentPage(initialPage)
+        }
+        setInitialPageRestored(true)
+      }, 100)
+      return () => clearTimeout(t)
+    } else {
+      setInitialPageRestored(true)
+    }
+  }, [chapterHtml, totalPages, initialPage, initialChapterId, selectedChapterId, initialPageRestored])
+
+  // Save progress when page changes (debounced)
+  useEffect(() => {
+    if (!selectedChapterId || !initialPageRestored) return
+    const t = setTimeout(() => {
+      onProgressChange?.(currentPage, selectedChapterId)
+    }, 500)
+    return () => clearTimeout(t)
+  }, [currentPage, selectedChapterId, onProgressChange, initialPageRestored])
 
   // Recalculate on resize
   useEffect(() => {
@@ -580,6 +637,9 @@ export function ReaderPanel({
   minedWords,
   onSelectSentence,
   onWordClick,
+  onProgressChange,
+  initialPosition,
+  initialChapterId,
   isEpub = false,
   chapters = [],
   selectedChapterId = null,
@@ -591,6 +651,75 @@ export function ReaderPanel({
   minedPatterns = [],
 }: ReaderPanelProps) {
   const selectedRef = useRef<HTMLDivElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [initialScrollDone, setInitialScrollDone] = useState(false)
+
+  // Track scroll position for subtitle view
+  useEffect(() => {
+    if (isEpub || !containerRef.current || sentences.length === 0) return
+
+    const container = containerRef.current
+    let scrollTimeout: ReturnType<typeof setTimeout> | null = null
+
+    const handleScroll = () => {
+      if (scrollTimeout) clearTimeout(scrollTimeout)
+      scrollTimeout = setTimeout(() => {
+        // Calculate which sentence is at the center of the viewport
+        const containerRect = container.getBoundingClientRect()
+        const centerY = containerRect.top + containerRect.height / 2
+
+        const sentenceEls = container.querySelectorAll('[data-sentence-id]')
+        let closestIdx = 0
+        let closestDistance = Infinity
+
+        sentenceEls.forEach((el, idx) => {
+          const rect = el.getBoundingClientRect()
+          const distance = Math.abs(rect.top + rect.height / 2 - centerY)
+          if (distance < closestDistance) {
+            closestDistance = distance
+            closestIdx = idx
+          }
+        })
+
+        onProgressChange?.(closestIdx)
+      }, 500) // Debounce 500ms
+    }
+
+    container.addEventListener('scroll', handleScroll, { passive: true })
+    return () => {
+      container.removeEventListener('scroll', handleScroll)
+      if (scrollTimeout) clearTimeout(scrollTimeout)
+    }
+  }, [isEpub, sentences.length, onProgressChange])
+
+  // Initial scroll to saved position for subtitle view
+  useEffect(() => {
+    if (isEpub || !containerRef.current || sentences.length === 0 || initialScrollDone) return
+    if (initialPosition === undefined || initialPosition <= 0) {
+      setInitialScrollDone(true)
+      return
+    }
+
+    // Wait for content to render, then scroll to the position
+    const timer = setTimeout(() => {
+      const sentenceEls = containerRef.current?.querySelectorAll('[data-sentence-id]')
+      if (!sentenceEls || initialPosition >= sentenceEls.length) {
+        setInitialScrollDone(true)
+        return
+      }
+
+      const targetEl = sentenceEls[initialPosition]
+      targetEl?.scrollIntoView({ behavior: 'auto', block: 'center' })
+      setInitialScrollDone(true)
+    }, 100)
+
+    return () => clearTimeout(timer)
+  }, [isEpub, sentences.length, initialPosition, initialScrollDone])
+
+  // Reset initial scroll done when source changes
+  useEffect(() => {
+    setInitialScrollDone(false)
+  }, [sentences])
 
   useEffect(() => {
     selectedRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
@@ -679,6 +808,9 @@ export function ReaderPanel({
         language={language}
         onSelectChapter={onSelectChapter}
         onEpubWordSelect={onEpubWordSelect}
+        onProgressChange={(page, chapterId) => onProgressChange?.(page, chapterId)}
+        initialChapterId={initialChapterId}
+        initialPage={initialPosition}
         allCardsMap={allCardsMap}
         minedPatterns={minedPatterns}
       />
@@ -699,17 +831,18 @@ export function ReaderPanel({
 
   return (
     <div
+      ref={containerRef}
       className="flex flex-col gap-0.5 py-2 overflow-y-auto h-full select-text"
       onMouseOver={handleSubtitleMouseOver}
       onMouseUp={handleSubtitleMouseUp}
       onMouseLeave={() => { setSubtitleTooltip(null); setSubtitlePatternTooltip(null) }}
       style={{ userSelect: 'text' }}
     >
-      {sentences.map((sentence) => {
+      {sentences.map((sentence, idx) => {
         const isSelected = selectedSentence?.id === sentence.id
         const isMinedSentence = minedSentenceSet.has(normalizeHighlightText(sentence.content))
         return (
-          <div key={sentence.id} ref={isSelected ? selectedRef : undefined}>
+          <div key={sentence.id} ref={isSelected ? selectedRef : undefined} data-sentence-id={sentence.id} data-sentence-idx={idx}>
             <SentenceRow
               sentence={sentence}
               language={language}

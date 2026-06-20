@@ -18,10 +18,40 @@ import { usePatternStore } from './store/patternStore'
 import { useHotkeys } from './hooks/useHotkeys'
 import { buildPatternDraftFromSentence } from './utils/patternMining'
 import { debugLog } from './utils/debugLog'
-import type { MediaSource, Language, Deck, Card, Sentence, Pattern } from './types'
+import type { MediaSource, Language, Deck, Card, Sentence, Pattern, ReadingProgress } from './types'
 
 export interface MinedCardEntry { card: Card; deckName: string }
 type ActiveView = 'reader' | 'stats' | 'decks' | 'drills'
+
+// EPUB progress encoding: position = chapterIdx * 10000 + pageIdx
+const EPUB_PAGE_MULTIPLIER = 10000
+
+function encodeEpubPosition(chapterIdx: number, pageIdx: number): number {
+  return chapterIdx * EPUB_PAGE_MULTIPLIER + pageIdx
+}
+
+function decodeEpubPosition(position: number): { chapterIdx: number; pageIdx: number } {
+  return {
+    chapterIdx: Math.floor(position / EPUB_PAGE_MULTIPLIER),
+    pageIdx: position % EPUB_PAGE_MULTIPLIER,
+  }
+}
+
+// Calculate reading progress percentage
+function getReadingPercent(source: MediaSource, progress?: ReadingProgress): number {
+  if (!progress) return 0
+  const total = source.sentenceCount ?? 0
+  if (total === 0) return 0
+
+  // For EPUB: position encodes both chapter index and page
+  if (source.type === 'epub') {
+    const { chapterIdx } = decodeEpubPosition(progress.position)
+    // +1 because chapter index is 0-based, and we want "chapter 1 of 10" to show some progress
+    return Math.min(100, Math.round(((chapterIdx + 1) / total) * 100))
+  }
+
+  return Math.min(100, Math.round((progress.position / total) * 100))
+}
 
 function normalizeSelectionText(value: string): string {
   return value
@@ -74,8 +104,10 @@ function Sidebar({
   sources,
   currentSourceId,
   totalDue,
+  progressMap,
   onImport,
   onSelect,
+  onDelete,
   onReview,
   onStats,
   onDecks,
@@ -85,8 +117,10 @@ function Sidebar({
   sources: MediaSource[]
   currentSourceId: number | null
   totalDue: number
+  progressMap: Map<number, ReadingProgress>
   onImport: () => void
   onSelect: (source: MediaSource) => void
+  onDelete: (source: MediaSource) => void
   onReview: () => void
   onStats: () => void
   onDecks: () => void
@@ -133,26 +167,62 @@ function Sidebar({
         ) : (
           sources.map((source) => {
             const label = mediaTypeLabel(source)
+            const progress = progressMap.get(source.id)
+            const percent = getReadingPercent(source, progress)
+            const isSelected = currentSourceId === source.id
             return (
-              <button
+              <div
                 key={source.id}
-                onClick={() => onSelect(source)}
-                className={`w-full text-left px-4 py-2 text-sm transition-colors hover:bg-white/5 ${
-                  currentSourceId === source.id
-                    ? 'text-blue-400 bg-blue-600/10'
-                    : 'text-gray-300'
+                className={`group relative px-4 py-2 transition-colors hover:bg-white/5 ${
+                  isSelected ? 'bg-blue-600/10' : ''
                 }`}
               >
-                <div className="flex items-center gap-1.5">
-                  <span className="truncate font-medium">{source.title}</span>
-                  {label && (
-                    <span className="shrink-0 text-[9px] bg-purple-600/30 text-purple-300 px-1 rounded">{label}</span>
+                <button
+                  onClick={() => onSelect(source)}
+                  className={`w-full text-left text-sm ${
+                    isSelected ? 'text-blue-400' : 'text-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span className="truncate font-medium">{source.title}</span>
+                    {label && (
+                      <span className="shrink-0 text-[9px] bg-purple-600/30 text-purple-300 px-1 rounded">{label}</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="text-xs text-gray-500">
+                      {source.language.toUpperCase()} · {source.sentenceCount ?? 0} {mediaCountLabel(source)}
+                    </span>
+                    {percent > 0 && (
+                      <span className={`text-[10px] ${percent >= 100 ? 'text-green-400' : 'text-blue-400'}`}>
+                        {percent}%
+                      </span>
+                    )}
+                  </div>
+                  {/* Progress bar */}
+                  {percent > 0 && (
+                    <div className="mt-1.5 h-0.5 bg-gray-700 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full transition-all ${percent >= 100 ? 'bg-green-500' : 'bg-blue-500'}`}
+                        style={{ width: `${percent}%` }}
+                      />
+                    </div>
                   )}
-                </div>
-                <div className="text-xs text-gray-500 mt-0.5">
-                  {source.language.toUpperCase()} · {source.sentenceCount ?? 0} {mediaCountLabel(source)}
-                </div>
-              </button>
+                </button>
+                {/* Delete button - visible on hover */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onDelete(source)
+                  }}
+                  className="absolute right-2 top-2 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-red-600/20 text-gray-500 hover:text-red-400 transition-all"
+                  title="Delete"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
             )
           })
         )}
@@ -235,6 +305,9 @@ export default function App() {
   const openPatternBuilder = usePatternStore((state) => state.openBuilder)
 
   const [sources, setSources] = useState<MediaSource[]>([])
+  const [progressMap, setProgressMap] = useState<Map<number, ReadingProgress>>(new Map())
+  const [initialPosition, setInitialPosition] = useState<number | undefined>(undefined)
+  const [initialChapterId, setInitialChapterId] = useState<string | undefined>(undefined)
   const [showImport, setShowImport] = useState(false)
   const [showDeckPicker, setShowDeckPicker] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -273,7 +346,18 @@ export default function App() {
 
   const loadSources = async () => {
     const result = await window.lexis.media.list()
-    if (result.data) setSources(result.data)
+    if (result.data) {
+      setSources(result.data)
+      // Load progress for all sources
+      const map = new Map<number, ReadingProgress>()
+      for (const source of result.data) {
+        const progressResult = await window.lexis.reader.getProgress(source.id)
+        if (progressResult.data) {
+          map.set(source.id, progressResult.data)
+        }
+      }
+      setProgressMap(map)
+    }
   }
 
   const loadDecks = async () => {
@@ -315,6 +399,20 @@ export default function App() {
     clearLookup()
     clearEPUB()
     setSentences([])
+
+    // Load saved progress for this source
+    const progressResult = await window.lexis.reader.getProgress(source.id)
+    const progress = progressResult.data
+
+    // For EPUB: decode position to get page index
+    if (source.type === 'epub' && progress) {
+      const { pageIdx } = decodeEpubPosition(progress.position)
+      setInitialPosition(pageIdx)
+    } else {
+      setInitialPosition(progress?.position)
+    }
+    setInitialChapterId(progress?.chapterId)
+
     await window.lexis.media.markOpened(source.id)
 
     if (source.type === 'epub') {
@@ -402,6 +500,51 @@ export default function App() {
     setPatternRefreshKey((value) => value + 1)
   }
 
+  const handleDeleteSource = async (source: MediaSource) => {
+    if (!confirm(`Delete "${source.title}"?\n\nThis will remove the source and its reading progress. Mined cards will not be affected.`)) {
+      return
+    }
+    const result = await window.lexis.media.delete(source.id)
+    if (result.error) {
+      console.error('Failed to delete source:', result.error)
+      return
+    }
+    // Clear current source if it was the deleted one
+    if (currentSource?.id === source.id) {
+      setSource(null as unknown as MediaSource)
+      setSentences([])
+      clearEPUB()
+    }
+    await loadSources()
+  }
+
+  const handleProgressChange = async (position: number, chapterId?: string) => {
+    if (!currentSource) return
+
+    let encodedPosition = position
+
+    // For EPUB: encode chapter index + page into position
+    if (currentSource.type === 'epub' && chapterId) {
+      const chapterIdx = chapters.findIndex((ch) => ch.id === chapterId)
+      if (chapterIdx >= 0) {
+        encodedPosition = encodeEpubPosition(chapterIdx, position)
+      }
+    }
+
+    await window.lexis.reader.saveProgress(currentSource.id, encodedPosition, chapterId)
+    // Update progress map for sidebar display
+    setProgressMap((prev) => {
+      const next = new Map(prev)
+      next.set(currentSource.id, {
+        sourceId: currentSource.id,
+        position: encodedPosition,
+        chapterId,
+        updatedAt: new Date().toISOString(),
+      })
+      return next
+    })
+  }
+
   const handleWelcomeComplete = async () => {
     await window.lexis.settings.set({ firstLaunchDone: true })
     setShowWelcome(false)
@@ -422,8 +565,10 @@ export default function App() {
           sources={sources}
           currentSourceId={currentSource?.id ?? null}
           totalDue={totalDue}
+          progressMap={progressMap}
           onImport={() => setShowImport(true)}
           onSelect={handleSelectSource}
+          onDelete={handleDeleteSource}
           onReview={() => setShowDeckPicker(true)}
           onStats={() => setActiveView('stats')}
           onDecks={() => setActiveView('decks')}
@@ -442,6 +587,9 @@ export default function App() {
               onSelectSentence={selectSentence}
               onWordClick={handleWordClick}
               onMinePattern={handleMinePattern}
+              onProgressChange={handleProgressChange}
+              initialPosition={initialPosition}
+              initialChapterId={initialChapterId}
               isEpub={isEpub}
               chapters={chapters}
               selectedChapterId={selectedChapterId}

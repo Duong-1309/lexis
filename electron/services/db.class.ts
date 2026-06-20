@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3'
 import path from 'path'
 import log from 'electron-log'
+import { getSettings } from './settings'
 import type {
   MediaSource,
   MediaSourceInsert,
@@ -1402,6 +1403,19 @@ export class DatabaseService {
 
     const longestStreak = this.getLongestStreak()
 
+    // Calculate hours until day end (dailyDueTime)
+    const settings = getSettings()
+    const dailyDueTime = settings.scheduling.dailyDueTime ?? '04:00'
+    const [dueHour, dueMinute] = dailyDueTime.split(':').map(Number)
+    const now = new Date()
+    const today = new Date(now)
+    today.setHours(dueHour, dueMinute, 0, 0)
+    // If we're past today's due time, target is tomorrow's due time
+    if (now >= today) {
+      today.setDate(today.getDate() + 1)
+    }
+    const hoursUntilDayEnd = Math.max(0, (today.getTime() - now.getTime()) / (1000 * 60 * 60))
+
     return {
       totalCards,
       cardsCreatedToday,
@@ -1413,6 +1427,7 @@ export class DatabaseService {
       currentStreak,
       longestStreak,
       validLearningDay,
+      hoursUntilDayEnd,
       nextAction,
       byLanguage,
       recentCards,

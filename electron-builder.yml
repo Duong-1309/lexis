@@ -9,15 +9,26 @@ directories:
 files:
   - "package.json"
   - "out"
+  - "!**/*.ts"
+  - "!**/*.map"
+  - "!**/test/**"
+  - "!**/tests/**"
+  - "!**/__tests__/**"
+  - "!**/docs/**"
+  - "!**/*.md"
+  - "!**/LICENSE*"
+  - "!**/CHANGELOG*"
+  - "!**/.eslint*"
+  - "!**/.prettier*"
 
 asarUnpack:
   - "**/*.node"
+  - "**/kuromoji/dict/**"
 
+# Only bundle WordNet (English). Japanese/Chinese are built on-demand.
 extraResources:
-  - from: assets/dicts/
-    to: dicts/
-    filter:
-      - "*.db"
+  - from: assets/dicts/wordnet.db
+    to: dicts/wordnet.db
 
 win:
   target:
@@ -42,8 +53,17 @@ mac:
       arch:
         - x64
         - arm64
+        - universal
   icon: buildResources/icon.icns
   category: public.app-category.education
+  electronLanguages:
+    - en
+    - vi
+    - ja
+    - zh_CN
+    - ko
+    - fr
+    - es
   hardenedRuntime: true
   gatekeeperAssess: false
   entitlements: buildResources/entitlements.mac.plist

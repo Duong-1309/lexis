@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import type { MiningStats } from '../../types'
+import { MissionsPanel } from './MissionsPanel'
 
 interface Props {
   onClose: () => void
@@ -66,6 +67,33 @@ export function StatsDashboard({ onClose, onReview, onDrills, onMine }: Props) {
 
       {stats && (
         <div className="flex-1 overflow-y-auto p-6 space-y-5 max-w-5xl mx-auto w-full">
+          {/* Streak Risk Warning */}
+          {!stats.validLearningDay && stats.hoursUntilDayEnd < 6 && (
+            <div className="bg-gradient-to-r from-orange-900/30 to-red-900/30 border border-orange-500/30 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <div className="shrink-0 w-10 h-10 rounded-full bg-orange-500/20 flex items-center justify-center">
+                  <svg className="w-5 h-5 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-sm font-semibold text-orange-200">
+                    {stats.currentStreak > 0
+                      ? `Protect your ${stats.currentStreak}-day streak!`
+                      : 'Start a learning streak today!'}
+                  </h3>
+                  <p className="text-xs text-orange-300/70 mt-1">
+                    {stats.hoursUntilDayEnd < 1
+                      ? 'Less than 1 hour remaining'
+                      : `${Math.round(stats.hoursUntilDayEnd)} hours remaining`}
+                    {' '}— complete one action to protect your streak.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="bg-gray-800 rounded-lg p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="flex items-center gap-2">
@@ -73,9 +101,15 @@ export function StatsDashboard({ onClose, onReview, onDrills, onMine }: Props) {
                 <span className={`text-[11px] rounded-full px-2 py-0.5 ${
                   stats.validLearningDay
                     ? 'bg-green-500/10 text-green-300'
-                    : 'bg-yellow-500/10 text-yellow-300'
+                    : stats.hoursUntilDayEnd < 6
+                      ? 'bg-orange-500/10 text-orange-300'
+                      : 'bg-yellow-500/10 text-yellow-300'
                 }`}>
-                  {stats.validLearningDay ? 'protected' : 'at risk'}
+                  {stats.validLearningDay
+                    ? 'protected'
+                    : stats.hoursUntilDayEnd < 6
+                      ? `${Math.round(stats.hoursUntilDayEnd)}h left`
+                      : 'at risk'}
                 </span>
               </div>
               <p className="text-xs text-gray-500 mt-1">{stats.nextAction.detail}</p>
@@ -96,6 +130,8 @@ export function StatsDashboard({ onClose, onReview, onDrills, onMine }: Props) {
             <StatCard label="Reviews Today" value={stats.reviewsToday} />
             <StatCard label="Due Today" value={stats.dueToday} />
           </div>
+
+          <MissionsPanel />
 
           <div className="bg-gray-800 rounded-lg p-4">
             <div className="flex items-center justify-between mb-4">

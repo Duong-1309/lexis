@@ -2,13 +2,19 @@ import { useEffect, useState } from 'react'
 
 export function StatusBar() {
   const [totalDue, setTotalDue] = useState(0)
+  const [coinBalance, setCoinBalance] = useState(0)
 
   useEffect(() => {
     const load = async () => {
-      const result = await window.lexis.decks.list()
-      if (result.data) {
-        const due = result.data.reduce((sum, d) => sum + (d.dueCount ?? 0), 0)
+      const decksResult = await window.lexis.decks.list()
+      if (decksResult.data) {
+        const due = decksResult.data.reduce((sum, d) => sum + (d.dueCount ?? 0), 0)
         setTotalDue(due)
+      }
+
+      const settingsResult = await window.lexis.settings.get()
+      if (settingsResult.data) {
+        setCoinBalance(settingsResult.data.coinBalance ?? 0)
       }
     }
 
@@ -26,6 +32,13 @@ export function StatusBar() {
         </span>
       </div>
       <div className="h-3 w-px bg-white/10" />
+      <div className="flex items-center gap-1">
+        <svg className="w-3.5 h-3.5 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
+          <circle cx="10" cy="10" r="8" />
+        </svg>
+        <span className="text-yellow-400 font-medium">{coinBalance.toLocaleString()}</span>
+      </div>
+      <div className="ml-auto" />
       <span>Lexis v1.0</span>
     </div>
   )

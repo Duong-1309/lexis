@@ -149,6 +149,15 @@ test.describe('mining workflow', () => {
             return ok(tokens)
           },
           autocomplete: async () => ok([]),
+          listDictionaries: async () => ok([
+            { id: 'jmdict', language: 'ja', name: 'JMdict', description: 'Japanese', size: 90000000, sizeFormatted: '90 MB', url: '', downloaded: true, downloading: false, progress: 0, version: '1.0' },
+            { id: 'wordnet', language: 'en', name: 'WordNet', description: 'English', size: 44000000, sizeFormatted: '44 MB', url: '', downloaded: true, downloading: false, progress: 0, version: '1.0' },
+          ]),
+          downloadDictionary: async () => ok(undefined),
+          deleteDictionary: async () => ok(undefined),
+          isDictionaryAvailable: async () => ok(true),
+          onDownloadProgress: () => {},
+          removeDownloadListeners: () => {},
         },
         audio: {
           getAudioPath: async () => ok(null),
@@ -299,6 +308,7 @@ test.describe('mining workflow', () => {
             currentStreak: cards.length + patterns.length + attempts.length > 0 ? 1 : 0,
             longestStreak: cards.length + patterns.length + attempts.length > 0 ? 1 : 0,
             validLearningDay: cards.length + patterns.length + attempts.length > 0,
+            hoursUntilDayEnd: 12,
             nextAction: {
               type: cards.length > 0 ? 'review' : 'mine',
               label: cards.length > 0 ? 'Review due cards' : 'Mine one sentence',
@@ -310,6 +320,18 @@ test.describe('mining workflow', () => {
             dailyHistory: [],
           }),
           getDailyHistory: async () => ok([]),
+        },
+        missions: {
+          getDailyMissions: async () => ok({
+            date: new Date().toISOString().slice(0, 10),
+            missions: [
+              { id: 'review', type: 'review_cards', title: 'Review cards', description: 'Review 10 cards', targetCount: 10, currentCount: 0, coinReward: 10, completed: false },
+              { id: 'mine', type: 'mine_cards', title: 'Mine cards', description: 'Create 3 cards', targetCount: 3, currentCount: 0, coinReward: 15, completed: false },
+            ],
+            totalCoins: 25,
+            claimedCoins: 0,
+          }),
+          claimMissionReward: async () => ok({ coinsEarned: 10, newBalance: 10 }),
         },
         settings: {
           get: async () => ok({
@@ -326,6 +348,12 @@ test.describe('mining workflow', () => {
               newCardsPerDay: 20,
               reviewsPerDay: 200,
             },
+            reminders: {
+              enabled: false,
+              reminderTime: '20:00',
+              quietHoursStart: '22:00',
+              quietHoursEnd: '07:00',
+            },
             cards: {
               defaultTemplate: 'Basic',
               showNativeDefinitionFirst: true,
@@ -337,6 +365,7 @@ test.describe('mining workflow', () => {
             theme: 'dark',
             checkForUpdates: true,
             firstLaunchDone: true,
+            coinBalance: 0,
           }),
           set: async () => ok(undefined),
           testAIKey: async () => ok(false),

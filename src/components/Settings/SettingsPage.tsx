@@ -1,26 +1,60 @@
 import { useEffect, useState } from 'react'
 import type { AIProvider, CardTemplate, NativeLanguage, UserSettings } from '../../types'
 import { COMMON_TIME_ZONES, DEFAULT_TIME_ZONE } from '../../utils/time'
+import { DictionaryManager } from './DictionaryManager'
 
 interface SettingsPageProps {
   onClose: () => void
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="space-y-4">
-      <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{title}</h3>
-      <div className="space-y-3">{children}</div>
-    </div>
-  )
-}
+type SettingsTab = 'general' | 'ai' | 'review' | 'reader'
+
+const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
+  {
+    id: 'general',
+    label: 'General',
+    icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+      </svg>
+    ),
+  },
+  {
+    id: 'ai',
+    label: 'AI & API',
+    icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+      </svg>
+    ),
+  },
+  {
+    id: 'review',
+    label: 'Review',
+    icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    ),
+  },
+  {
+    id: 'reader',
+    label: 'Reader',
+    icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+      </svg>
+    ),
+  },
+]
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-300 mb-1">{label}</label>
+      <label className="block text-sm font-medium text-gray-300 mb-1.5">{label}</label>
       {children}
-      {hint && <p className="mt-1 text-xs text-gray-500">{hint}</p>}
+      {hint && <p className="mt-1.5 text-xs text-gray-500">{hint}</p>}
     </div>
   )
 }
@@ -32,7 +66,6 @@ function parseStepInput(value: string): number[] {
     .split(',')
     .map((part) => Number(part.trim()))
     .filter((step) => Number.isFinite(step) && step > 0)
-
   return steps.length > 0 ? steps : [1, 10]
 }
 
@@ -65,23 +98,24 @@ function ApiKeyField({
           className="flex-1 px-3 py-2 bg-gray-800 border border-white/10 rounded-lg text-sm text-gray-100 focus:outline-none focus:border-blue-500/50"
           placeholder={placeholder}
           value={value}
-          onChange={(e) => { onChange(e.target.value); }}
+          onChange={(e) => onChange(e.target.value)}
         />
         <button
           onClick={onTest}
           disabled={status === 'testing' || !value.trim()}
           className="px-3 py-2 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg transition-colors disabled:opacity-50"
         >
-          {status === 'testing' ? 'Testing...' : 'Test'}
+          {status === 'testing' ? '...' : 'Test'}
         </button>
       </div>
-      {status === 'ok' && <p className="mt-1 text-xs text-green-400">API key is valid</p>}
-      {status === 'fail' && <p className="mt-1 text-xs text-red-400">Invalid API key — check and try again</p>}
+      {status === 'ok' && <p className="mt-1 text-xs text-green-400">Valid</p>}
+      {status === 'fail' && <p className="mt-1 text-xs text-red-400">Invalid key</p>}
     </Field>
   )
 }
 
 export function SettingsPage({ onClose }: SettingsPageProps) {
+  const [activeTab, setActiveTab] = useState<SettingsTab>('general')
   const [settings, setLocalSettings] = useState<UserSettings | null>(null)
   const [anthropicKey, setAnthropicKey] = useState('')
   const [openaiKey, setOpenaiKey] = useState('')
@@ -155,28 +189,12 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
     ? [settings.timeZone, ...COMMON_TIME_ZONES]
     : COMMON_TIME_ZONES
 
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
-    >
-      <div className="w-[560px] max-h-[85vh] bg-gray-900 border border-white/10 rounded-xl shadow-2xl flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-white/5">
-          <h2 className="text-sm font-semibold text-gray-200">Settings</h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-300 transition-colors">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-8">
-
-          {/* AI Provider */}
-          <Section title="AI Provider">
-            <Field label="Native Language" hint="Used for AI translations, explanations, and cached definitions. Changing it clears cached definition translations.">
+  const renderContent = () => {
+    switch (activeTab) {
+      case 'general':
+        return (
+          <div className="space-y-6">
+            <Field label="Native Language" hint="Used for translations and definitions. Changing clears cache.">
               <div className="flex bg-gray-800 rounded-lg p-1">
                 {([
                   ['vi', 'Tiếng Việt'],
@@ -197,7 +215,29 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
               </div>
             </Field>
 
-            <Field label="Provider">
+            <Field label="Time Zone" hint="Used for due dates and daily stats.">
+              <select
+                className="w-full px-3 py-2 bg-gray-800 border border-white/10 rounded-lg text-sm text-gray-100 focus:outline-none focus:border-blue-500/50"
+                value={settings.timeZone || DEFAULT_TIME_ZONE}
+                onChange={(e) => setLocalSettings({ ...settings, timeZone: e.target.value })}
+              >
+                {timeZones.map((zone) => (
+                  <option key={zone} value={zone}>{zone}</option>
+                ))}
+              </select>
+            </Field>
+
+            <div className="pt-2">
+              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Dictionaries</h4>
+              <DictionaryManager />
+            </div>
+          </div>
+        )
+
+      case 'ai':
+        return (
+          <div className="space-y-6">
+            <Field label="AI Provider">
               <div className="flex bg-gray-800 rounded-lg p-1">
                 {(['anthropic', 'openai'] as AIProvider[]).map((p) => (
                   <button
@@ -209,113 +249,59 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
                         : 'text-gray-500 hover:text-gray-300'
                     }`}
                   >
-                    {p === 'anthropic' ? 'Anthropic (Claude)' : 'OpenAI (GPT-4o)'}
+                    {p === 'anthropic' ? 'Claude' : 'GPT-4o'}
                   </button>
                 ))}
               </div>
             </Field>
 
-            <ApiKeyField
-              label="Anthropic API Key"
-              value={anthropicKey}
-              placeholder="sk-ant-..."
-              hint="Required to use Claude. Get your key at console.anthropic.com"
-              status={anthropicStatus}
-              onChange={(v) => { setAnthropicKey(v); setAnthropicStatus('idle') }}
-              onTest={() => testKey(anthropicKey, 'anthropic', setAnthropicStatus)}
-            />
-
-            <ApiKeyField
-              label="OpenAI API Key"
-              value={openaiKey}
-              placeholder="sk-..."
-              hint="Required to use GPT-4o. Get your key at platform.openai.com"
-              status={openaiStatus}
-              onChange={(v) => { setOpenaiKey(v); setOpenaiStatus('idle') }}
-              onTest={() => testKey(openaiKey, 'openai', setOpenaiStatus)}
-            />
-
-            {/* Active provider indicator */}
             <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs ${
               settings.aiProvider === 'anthropic'
                 ? 'bg-orange-500/10 text-orange-300 border border-orange-500/20'
                 : 'bg-green-500/10 text-green-300 border border-green-500/20'
             }`}>
               <span className="w-1.5 h-1.5 rounded-full bg-current shrink-0" />
-              AI features will use{' '}
-              <strong>{settings.aiProvider === 'anthropic' ? 'Claude (Anthropic)' : 'GPT-4o (OpenAI)'}</strong>
-            </div>
-          </Section>
-
-          {/* Other keys */}
-          <Section title="Other API Keys">
-            <ApiKeyField
-              label="Forvo API Key"
-              value={forvoKey}
-              placeholder="Your Forvo API key"
-              hint="Optional. Enables real human audio pronunciations. Falls back to TTS if not set."
-              status="idle"
-              onChange={setForvoKey}
-              onTest={() => {}}
-            />
-          </Section>
-
-          {/* Reader */}
-          <Section title="Scheduling">
-            <Field label="Time Zone" hint="Used for due dates, learning steps, stats, and future card scheduling settings.">
-              <select
-                className="w-full px-3 py-2 bg-gray-800 border border-white/10 rounded-lg text-sm text-gray-100 focus:outline-none focus:border-blue-500/50"
-                value={settings.timeZone || DEFAULT_TIME_ZONE}
-                onChange={(e) => setLocalSettings({ ...settings, timeZone: e.target.value })}
-              >
-                {timeZones.map((zone) => (
-                  <option key={zone} value={zone}>
-                    {zone}
-                  </option>
-                ))}
-              </select>
-            </Field>
-
-            <Field label="Learning Steps" hint="Comma-separated minutes. Saved now; SRS wiring comes next.">
-              <input
-                className="w-full px-3 py-2 bg-gray-800 border border-white/10 rounded-lg text-sm text-gray-100 focus:outline-none focus:border-blue-500/50"
-                value={learningStepsInput}
-                onChange={(e) => setLearningStepsInput(e.target.value)}
-                onBlur={() => setScheduling({ learningStepsMinutes: parseStepInput(learningStepsInput) })}
-                placeholder="1, 10"
-              />
-            </Field>
-
-            <Field label="Daily Due Time" hint="Local time for future daily review cutoff behavior.">
-              <input
-                type="time"
-                className="w-full px-3 py-2 bg-gray-800 border border-white/10 rounded-lg text-sm text-gray-100 focus:outline-none focus:border-blue-500/50"
-                value={settings.scheduling.dailyDueTime}
-                onChange={(e) => setScheduling({ dailyDueTime: e.target.value })}
-              />
-            </Field>
-
-            <div className="rounded-lg border border-white/10 bg-gray-800/60 px-3 py-3">
-              <label className="flex items-start gap-3">
-                <input
-                  type="checkbox"
-                  className="mt-1 accent-blue-500"
-                  checked={settings.reminders.enabled}
-                  onChange={(e) => setReminders({ enabled: e.target.checked })}
-                />
-                <span>
-                  <span className="block text-sm font-medium text-gray-300">Smart Reminders</span>
-                  <span className="block text-xs text-gray-500">
-                    Lexis reminds you automatically when cards become due.
-                  </span>
-                </span>
-              </label>
-              <p className="mt-2 text-xs text-gray-600">
-                If no cards are due, Lexis can still send one streak nudge after the daily due time.
-              </p>
+              Using <strong className="ml-1">{settings.aiProvider === 'anthropic' ? 'Claude' : 'GPT-4o'}</strong>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="border-t border-white/5 pt-6 space-y-5">
+              <ApiKeyField
+                label="Anthropic API Key"
+                value={anthropicKey}
+                placeholder="sk-ant-..."
+                hint="console.anthropic.com"
+                status={anthropicStatus}
+                onChange={(v) => { setAnthropicKey(v); setAnthropicStatus('idle') }}
+                onTest={() => testKey(anthropicKey, 'anthropic', setAnthropicStatus)}
+              />
+
+              <ApiKeyField
+                label="OpenAI API Key"
+                value={openaiKey}
+                placeholder="sk-..."
+                hint="platform.openai.com"
+                status={openaiStatus}
+                onChange={(v) => { setOpenaiKey(v); setOpenaiStatus('idle') }}
+                onTest={() => testKey(openaiKey, 'openai', setOpenaiStatus)}
+              />
+
+              <ApiKeyField
+                label="Forvo API Key"
+                value={forvoKey}
+                placeholder="Optional"
+                hint="For human audio pronunciations"
+                status="idle"
+                onChange={setForvoKey}
+                onTest={() => {}}
+              />
+            </div>
+          </div>
+        )
+
+      case 'review':
+        return (
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 gap-4">
               <Field label="New Cards / Day">
                 <input
                   type="number"
@@ -338,70 +324,120 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
                 />
               </Field>
             </div>
-          </Section>
 
-          <Section title="Cards">
-            <Field label="Default Template">
-              <select
+            <Field label="Learning Steps (minutes)" hint="Comma-separated. E.g., 1, 10">
+              <input
                 className="w-full px-3 py-2 bg-gray-800 border border-white/10 rounded-lg text-sm text-gray-100 focus:outline-none focus:border-blue-500/50"
-                value={settings.cards.defaultTemplate}
-                onChange={(e) => setCardSettings({ defaultTemplate: e.target.value as CardTemplate })}
-              >
-                <option value="Basic">Basic</option>
-                <option value="Cloze">Cloze</option>
-              </select>
+                value={learningStepsInput}
+                onChange={(e) => setLearningStepsInput(e.target.value)}
+                onBlur={() => setScheduling({ learningStepsMinutes: parseStepInput(learningStepsInput) })}
+                placeholder="1, 10"
+              />
             </Field>
 
-            <label className="flex items-start gap-3 rounded-lg border border-white/10 bg-gray-800/60 px-3 py-2">
+            <Field label="Daily Due Time">
+              <input
+                type="time"
+                className="w-full px-3 py-2 bg-gray-800 border border-white/10 rounded-lg text-sm text-gray-100 focus:outline-none focus:border-blue-500/50"
+                value={settings.scheduling.dailyDueTime}
+                onChange={(e) => setScheduling({ dailyDueTime: e.target.value })}
+              />
+            </Field>
+
+            <label className="flex items-start gap-3 rounded-lg border border-white/10 bg-gray-800/60 px-3 py-3 cursor-pointer">
               <input
                 type="checkbox"
                 className="mt-0.5 accent-blue-500"
-                checked={settings.cards.showNativeDefinitionFirst}
-                onChange={(e) => setCardSettings({ showNativeDefinitionFirst: e.target.checked })}
+                checked={settings.reminders.enabled}
+                onChange={(e) => setReminders({ enabled: e.target.checked })}
               />
               <span>
-                <span className="block text-sm font-medium text-gray-300">Native definition first</span>
-                <span className="block text-xs text-gray-500">Use Vietnamese/native definition as the primary back-side answer.</span>
+                <span className="block text-sm font-medium text-gray-300">Smart Reminders</span>
+                <span className="block text-xs text-gray-500">Notify when cards are due or streak at risk</span>
               </span>
             </label>
 
-            <label className="flex items-start gap-3 rounded-lg border border-white/10 bg-gray-800/60 px-3 py-2">
-              <input
-                type="checkbox"
-                className="mt-0.5 accent-blue-500"
-                checked={settings.cards.autoPlayAudio}
-                onChange={(e) => setCardSettings({ autoPlayAudio: e.target.checked })}
-              />
-              <span>
-                <span className="block text-sm font-medium text-gray-300">Auto-play audio in review</span>
-                <span className="block text-xs text-gray-500">Saved now; review playback wiring can use this next.</span>
-              </span>
-            </label>
-          </Section>
+            <div className="border-t border-white/5 pt-6 space-y-4">
+              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Cards</h4>
 
-          {/* Reader */}
-          <Section title="Reader">
+              <Field label="Default Template">
+                <select
+                  className="w-full px-3 py-2 bg-gray-800 border border-white/10 rounded-lg text-sm text-gray-100 focus:outline-none focus:border-blue-500/50"
+                  value={settings.cards.defaultTemplate}
+                  onChange={(e) => setCardSettings({ defaultTemplate: e.target.value as CardTemplate })}
+                >
+                  <option value="Basic">Basic</option>
+                  <option value="Cloze">Cloze</option>
+                </select>
+              </Field>
+
+              <label className="flex items-start gap-3 rounded-lg border border-white/10 bg-gray-800/60 px-3 py-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 accent-blue-500"
+                  checked={settings.cards.showNativeDefinitionFirst}
+                  onChange={(e) => setCardSettings({ showNativeDefinitionFirst: e.target.checked })}
+                />
+                <span>
+                  <span className="block text-sm font-medium text-gray-300">Native definition first</span>
+                  <span className="block text-xs text-gray-500">Show Vietnamese as primary answer</span>
+                </span>
+              </label>
+
+              <label className="flex items-start gap-3 rounded-lg border border-white/10 bg-gray-800/60 px-3 py-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 accent-blue-500"
+                  checked={settings.cards.autoPlayAudio}
+                  onChange={(e) => setCardSettings({ autoPlayAudio: e.target.checked })}
+                />
+                <span>
+                  <span className="block text-sm font-medium text-gray-300">Auto-play audio</span>
+                  <span className="block text-xs text-gray-500">Play pronunciation during review</span>
+                </span>
+              </label>
+            </div>
+          </div>
+        )
+
+      case 'reader':
+        return (
+          <div className="space-y-6">
             <Field label="Font Size">
               <div className="flex items-center gap-3">
-                <input type="range" min={12} max={24} step={1} className="flex-1 accent-blue-500"
+                <span className="text-xs text-gray-500 w-6">12</span>
+                <input
+                  type="range"
+                  min={12}
+                  max={24}
+                  step={1}
+                  className="flex-1 accent-blue-500"
                   value={settings.readerFontSize}
                   onChange={(e) => setLocalSettings({ ...settings, readerFontSize: Number(e.target.value) })}
                 />
-                <span className="w-8 text-xs text-gray-400 text-right">{settings.readerFontSize}px</span>
+                <span className="text-xs text-gray-500 w-6">24</span>
+                <span className="w-12 text-sm text-gray-300 text-right font-medium">{settings.readerFontSize}px</span>
               </div>
             </Field>
 
             <Field label="Line Height">
               <div className="flex items-center gap-3">
-                <input type="range" min={1.2} max={2.4} step={0.1} className="flex-1 accent-blue-500"
+                <span className="text-xs text-gray-500 w-6">1.2</span>
+                <input
+                  type="range"
+                  min={1.2}
+                  max={2.4}
+                  step={0.1}
+                  className="flex-1 accent-blue-500"
                   value={settings.readerLineHeight}
                   onChange={(e) => setLocalSettings({ ...settings, readerLineHeight: Number(e.target.value) })}
                 />
-                <span className="w-8 text-xs text-gray-400 text-right">{settings.readerLineHeight.toFixed(1)}</span>
+                <span className="text-xs text-gray-500 w-6">2.4</span>
+                <span className="w-12 text-sm text-gray-300 text-right font-medium">{settings.readerLineHeight.toFixed(1)}</span>
               </div>
             </Field>
 
-            <Field label="Font">
+            <Field label="Font Family">
               <select
                 className="w-full px-3 py-2 bg-gray-800 border border-white/10 rounded-lg text-sm text-gray-100 focus:outline-none focus:border-blue-500/50"
                 value={settings.readerFont}
@@ -414,23 +450,85 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
                 <option value="'Noto Sans SC', sans-serif">Noto Sans SC (Chinese)</option>
               </select>
             </Field>
-          </Section>
+
+            {/* Preview */}
+            <div className="border-t border-white/5 pt-6">
+              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Preview</h4>
+              <div
+                className="bg-gray-800 rounded-lg p-4 border border-white/5"
+                style={{
+                  fontSize: `${settings.readerFontSize}px`,
+                  lineHeight: settings.readerLineHeight,
+                  fontFamily: settings.readerFont,
+                }}
+              >
+                <p className="text-gray-200">The quick brown fox jumps over the lazy dog.</p>
+                <p className="text-gray-200 mt-2">日本語のサンプルテキストです。</p>
+                <p className="text-gray-200 mt-2">这是中文示例文本。</p>
+              </div>
+            </div>
+          </div>
+        )
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="w-[680px] h-[520px] bg-gray-900 border border-white/10 rounded-xl shadow-2xl flex overflow-hidden">
+        {/* Sidebar */}
+        <div className="w-44 bg-gray-900 border-r border-white/5 flex flex-col">
+          <div className="p-4 border-b border-white/5">
+            <h2 className="text-sm font-semibold text-gray-200">Settings</h2>
+          </div>
+          <nav className="flex-1 p-2 space-y-1">
+            {TABS.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors ${
+                  activeTab === tab.id
+                    ? 'bg-blue-600/20 text-blue-400'
+                    : 'text-gray-400 hover:text-gray-200 hover:bg-white/5'
+                }`}
+              >
+                {tab.icon}
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+          <div className="p-3 border-t border-white/5">
+            <button
+              onClick={onClose}
+              className="w-full px-3 py-1.5 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+            >
+              Close
+            </button>
+          </div>
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-white/5">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-400 hover:text-gray-200 transition-colors">
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className={`px-5 py-2 text-sm font-medium rounded-lg transition-colors ${
-              saved ? 'bg-green-600/80 text-white' : 'bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50'
-            }`}
-          >
-            {saved ? 'Saved!' : saving ? 'Saving...' : 'Save Settings'}
-          </button>
+        {/* Content */}
+        <div className="flex-1 flex flex-col">
+          <div className="flex-1 overflow-y-auto p-6">
+            {renderContent()}
+          </div>
+
+          {/* Footer */}
+          <div className="flex items-center justify-end px-6 py-3 border-t border-white/5 bg-gray-800/30">
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className={`px-5 py-2 text-sm font-medium rounded-lg transition-colors ${
+                saved
+                  ? 'bg-green-600/80 text-white'
+                  : 'bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50'
+              }`}
+            >
+              {saved ? 'Saved!' : saving ? 'Saving...' : 'Save'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

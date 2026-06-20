@@ -51,15 +51,59 @@ class DictionaryService {
   // Open a dictionary DB (read-only after build)
   openDictionary(lang: Language, dbPath: string): void {
     if (!fs.existsSync(dbPath)) {
-      log.warn(`Dictionary not found: ${dbPath}. Run npm run build:dicts`)
+      log.warn(`Dictionary not found: ${dbPath}`)
       return
     }
     try {
+      // Close existing if open
+      if (this.dbs.has(lang)) {
+        this.dbs.get(lang)?.close()
+        this.dbs.delete(lang)
+      }
       const db = new Database(dbPath, { readonly: true })
       this.dbs.set(lang, db)
       log.info(`Opened dictionary for ${lang}: ${dbPath}`)
     } catch (e) {
       log.error(`Failed to open dictionary ${dbPath}:`, e)
+    }
+  }
+
+  // Try to open dictionary from user data dir (downloaded) or bundled dir
+  tryOpenDictionary(lang: Language, userDictsDir: string, bundledDictsDir: string): boolean {
+    const langToFile: Record<string, string> = {
+      ja: 'jmdict.db',
+      zh: 'cedict.db',
+      en: 'wordnet.db',
+    }
+    const filename = langToFile[lang]
+    if (!filename) return false
+
+    // First try user downloaded location
+    const userPath = path.join(userDictsDir, filename)
+    if (fs.existsSync(userPath)) {
+      this.openDictionary(lang, userPath)
+      return true
+    }
+
+    // Then try bundled location
+    const bundledPath = path.join(bundledDictsDir, filename)
+    if (fs.existsSync(bundledPath)) {
+      this.openDictionary(lang, bundledPath)
+      return true
+    }
+
+    return false
+  }
+
+  isDictionaryLoaded(lang: Language): boolean {
+    return this.dbs.has(lang)
+  }
+
+  closeDictionary(lang: Language): void {
+    if (this.dbs.has(lang)) {
+      this.dbs.get(lang)?.close()
+      this.dbs.delete(lang)
+      log.info(`Closed dictionary for ${lang}`)
     }
   }
 

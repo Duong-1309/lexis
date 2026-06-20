@@ -294,6 +294,39 @@ export interface Token {
   offset: number
 }
 
+// ─── Dictionary Management ────────────────────────────────────────────────────
+
+export type DictionaryId = 'jmdict' | 'cedict' | 'wordnet'
+
+export interface DictionaryInfo {
+  id: DictionaryId
+  language: Language
+  name: string
+  description: string
+  size: number // bytes
+  sizeFormatted: string
+  url: string
+  downloaded: boolean
+  downloading: boolean
+  progress: number // 0-100
+  version: string
+  updatedAt?: string
+  bundled?: boolean // true if available in app bundle
+  source?: 'user' | 'bundled' // where the dictionary was loaded from
+}
+
+export interface DictionaryManifest {
+  dictionaries: Record<DictionaryId, { version: string; downloadedAt: string }>
+}
+
+export interface DictionaryDownloadProgress {
+  id: DictionaryId
+  progress: number
+  downloadedBytes: number
+  totalBytes: number
+  stage?: string // e.g., "Downloading...", "Building database..."
+}
+
 // ─── Shared ───────────────────────────────────────────────────────────────────
 
 export interface IPCResult<T> {
@@ -315,6 +348,56 @@ export interface DailyNextAction {
   count?: number
 }
 
+// ─── Missions ─────────────────────────────────────────────────────────────────
+
+export type MissionType = 'review_cards' | 'mine_cards' | 'complete_drills' | 'convert_attempt'
+
+export interface Mission {
+  id: string
+  type: MissionType
+  title: string
+  description: string
+  targetCount: number
+  currentCount: number
+  coinReward: number
+  completed: boolean
+  claimedAt?: string
+}
+
+export interface DailyMissions {
+  date: string
+  missions: Mission[]
+  totalCoins: number
+  claimedCoins: number
+}
+
+// ─── Items (placeholder for future shop system) ──────────────────────────────
+
+export type ItemCategory = 'theme' | 'avatar' | 'badge' | 'boost'
+export type ItemRarity = 'common' | 'rare' | 'epic' | 'legendary'
+
+export interface ShopItem {
+  id: string
+  name: string
+  description: string
+  category: ItemCategory
+  rarity: ItemRarity
+  coinCost: number
+  iconUrl?: string
+  previewUrl?: string
+  unlocked: boolean
+  equippedAt?: string
+}
+
+export interface UserInventory {
+  items: ShopItem[]
+  equippedTheme?: string
+  equippedAvatar?: string
+  equippedBadges: string[]
+}
+
+// ─── Stats ────────────────────────────────────────────────────────────────────
+
 export interface MiningStats {
   totalCards: number
   cardsCreatedToday: number
@@ -326,6 +409,7 @@ export interface MiningStats {
   currentStreak: number
   longestStreak: number
   validLearningDay: boolean
+  hoursUntilDayEnd: number
   nextAction: DailyNextAction
   byLanguage: Record<string, number>
   recentCards: Card[]
@@ -391,6 +475,7 @@ export interface UserSettings {
   theme: 'light' | 'dark' | 'system'
   checkForUpdates: boolean
   firstLaunchDone: boolean
+  coinBalance: number
 }
 
 // ─── window.lexis API surface ─────────────────────────────────────────────────
@@ -418,6 +503,13 @@ export interface DictionaryAPI {
   lookup(word: string, language: Language): Promise<IPCResult<DictEntry[]>>
   tokenize(text: string, language: Language): Promise<IPCResult<Token[]>>
   autocomplete(prefix: string, language: Language): Promise<IPCResult<string[]>>
+  // Dictionary management
+  listDictionaries(): Promise<IPCResult<DictionaryInfo[]>>
+  downloadDictionary(id: DictionaryId): Promise<IPCResult<void>>
+  deleteDictionary(id: DictionaryId): Promise<IPCResult<void>>
+  isDictionaryAvailable(language: Language): Promise<IPCResult<boolean>>
+  onDownloadProgress(callback: (progress: DictionaryDownloadProgress) => void): void
+  removeDownloadListeners(): void
 }
 
 export interface AudioAPI {
@@ -499,6 +591,11 @@ export interface StatsAPI {
   getDailyHistory(days: number): Promise<IPCResult<DayStat[]>>
 }
 
+export interface MissionsAPI {
+  getDailyMissions(): Promise<IPCResult<DailyMissions>>
+  claimMissionReward(missionId: string): Promise<IPCResult<{ coinsEarned: number; newBalance: number }>>
+}
+
 export interface SettingsAPI {
   get(): Promise<IPCResult<UserSettings>>
   set(updates: Partial<UserSettings>): Promise<IPCResult<void>>
@@ -517,6 +614,7 @@ export interface LexisAPI {
   drills: DrillsAPI
   ai: AIAPI
   stats: StatsAPI
+  missions: MissionsAPI
   settings: SettingsAPI
 }
 

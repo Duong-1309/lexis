@@ -23,6 +23,10 @@ import type {
   DrillEvaluationInput,
   MiningStats,
   DayStat,
+  DailyMissions,
+  DictionaryInfo,
+  DictionaryId,
+  DictionaryDownloadProgress,
   UserSettings,
   IPCResult,
   LexisAPI,
@@ -55,6 +59,20 @@ const lexisAPI: LexisAPI = {
     tokenize: (text, language) => ipcRenderer.invoke('dictionary:tokenize', text, language),
     autocomplete: (prefix, language) =>
       ipcRenderer.invoke('dictionary:autocomplete', prefix, language),
+    listDictionaries: () => ipcRenderer.invoke('dictionary:list-dicts'),
+    downloadDictionary: (id) => ipcRenderer.invoke('dictionary:download', id),
+    deleteDictionary: (id) => ipcRenderer.invoke('dictionary:delete', id),
+    isDictionaryAvailable: (language) => ipcRenderer.invoke('dictionary:is-available', language),
+    onDownloadProgress: (callback) => {
+      ipcRenderer.on('dictionary:download-progress', (_event, progress: DictionaryDownloadProgress) =>
+        callback(progress),
+      )
+    },
+    removeDownloadListeners: () => {
+      ipcRenderer.removeAllListeners('dictionary:download-progress')
+      ipcRenderer.removeAllListeners('dictionary:download-complete')
+      ipcRenderer.removeAllListeners('dictionary:download-error')
+    },
   },
 
   audio: {
@@ -146,6 +164,11 @@ const lexisAPI: LexisAPI = {
   stats: {
     getMiningStats: () => ipcRenderer.invoke('stats:get-mining'),
     getDailyHistory: (days) => ipcRenderer.invoke('stats:daily-history', days),
+  },
+
+  missions: {
+    getDailyMissions: () => ipcRenderer.invoke('missions:get-daily'),
+    claimMissionReward: (missionId) => ipcRenderer.invoke('missions:claim-reward', missionId),
   },
 
   settings: {

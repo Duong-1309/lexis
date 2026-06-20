@@ -32,6 +32,7 @@ const DEFAULTS: UserSettings = {
   theme: 'dark',
   checkForUpdates: true,
   firstLaunchDone: false,
+  coinBalance: 0,
 }
 
 export const settingsStore = new Store<UserSettings>({
