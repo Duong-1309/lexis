@@ -1004,6 +1004,93 @@ Verify: `npm run dist` → working installer on current platform.
 
 ---
 
+## Sprint 10 — User Lifecycle + Motivation Loop
+
+### Sprint 10 Goal
+
+After the core Sentence Mining + Pattern Drill MVP is stable, Lexis should guide
+the learner through a daily loop: create learning material, receive reminders,
+complete focused tasks, protect streaks, and earn lightweight rewards. This
+sprint is about habit formation and user experience flow, not monetization.
+
+### Sprint 10 Product Flow
+
+1. **Create** — user imports content, mines sentences/patterns, makes cards, and
+   creates drill attempts.
+2. **Schedule** — due cards, pending drill reviews, and daily mining goals become
+   today's workload.
+3. **Notify** — app reminds the user when due workload exists or a streak is at
+   risk.
+4. **Complete Tasks** — user clears daily tasks such as review due cards, mine N
+   sentences, finish N drills, or correct old mistakes.
+5. **Reward** — completed tasks award coins and update streak progress.
+6. **Protect** — user can spend coins to recover a missed day or activate a
+   streak shield.
+7. **Return** — dashboard shows what to do next, why it matters, and the next
+   best action.
+
+### Sprint 10 Tasks
+
+#### Task 10.1 — Daily Learning Lifecycle
+
+- Add a daily dashboard state derived from cards, drill attempts, and mining
+  history.
+- Show today's workload: due cards, due drill cards, suggested mining count, and
+  unfinished tasks.
+- Add one primary next action so the user never has to decide from scratch.
+
+#### Task 10.2 — Notifications + Reminders
+
+- Add reminder settings: enabled, preferred time, quiet hours.
+- Trigger local desktop notification when reviews are due or streak is at risk.
+- Do not notify if the app was used recently or today's task is already complete.
+
+#### Task 10.3 — Streak Rules
+
+- Define what counts as a valid learning day:
+  - review at least one due card, or
+  - complete at least one pattern drill, or
+  - mine at least one sentence/pattern.
+- Track current streak, longest streak, last active day, and streak risk state.
+- Show streak status on dashboard and review completion.
+
+#### Task 10.4 — Daily Missions
+
+- Generate small daily tasks from real app behavior:
+  - review due cards
+  - mine sentences from current source
+  - complete pattern drills
+  - convert an old attempt into a card
+- Keep tasks lightweight and optional; no blocking core learning flow.
+
+#### Task 10.5 — Coin Economy MVP
+
+- Award coins for completing missions and maintaining streaks.
+- Spend coins on utility actions:
+  - streak rescue after one missed day
+  - streak shield before a risky day
+  - optional extra daily challenge reroll
+- Keep the economy local-only and non-monetized.
+
+#### Task 10.6 — Item System Placeholder
+
+- Reserve data model/API space for future items.
+- Do not build full inventory/shop yet.
+- Future item examples: streak freeze, focus boost, review boost, cosmetic
+  badges, temporary mission multiplier.
+
+### Sprint 10 Acceptance Tests
+
+- [ ] Dashboard shows one clear next action for a returning user
+- [ ] Streak increments after a valid learning action
+- [ ] Streak risk appears when the day is near ending and no valid action is done
+- [ ] Local reminder can be configured and triggered
+- [ ] Daily missions can be completed and award coins
+- [ ] Coins can be spent to rescue or protect a streak
+- [ ] Core mining/review/drill flows still work without missions enabled
+
+---
+
 ## Definition of Done (all sprints)
 
 1. TypeScript compiles with 0 errors (`npm run typecheck`)

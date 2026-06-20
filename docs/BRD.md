@@ -89,7 +89,16 @@ A learner mining 20 words per day currently spends approximately:
 - Screenshot/image capture for cards
 - Mining streak and detailed analytics
 
-### 4.3 Out of Scope
+### 4.3 In Scope — Post-MVP Habit Loop
+
+- Daily learning lifecycle: create → scheduled workload → complete → reward → return
+- Local reminders for due reviews and streak risk
+- Streak rules based on real learning actions: review, drill, or sentence/pattern mining
+- Daily missions derived from existing flows
+- Local coin economy for non-monetized utility actions such as streak rescue and streak shields
+- Future item system placeholder; full inventory/shop is deferred
+
+### 4.4 Out of Scope
 
 - Mobile app (future consideration)
 - Video playback with embedded subtitles (subtitle file import only)
@@ -190,7 +199,21 @@ A learner mining 20 words per day currently spends approximately:
 | FR-PD07 | Create review card from attempt | P2 | Attempt can become a card showing old mistake and corrected answer |
 | FR-PD08 | Pattern drill history | P2 | User can view attempts grouped by pattern |
 
-### 6.6 AI Module (v1.1)
+### 6.6 User Lifecycle & Motivation Module
+
+| ID | Requirement | Priority | Acceptance Criteria |
+|----|-------------|----------|---------------------|
+| FR-LC01 | Daily dashboard next action | P2 | App shows one primary next action based on due cards, drill attempts, and mining goals |
+| FR-LC02 | Local reminders | P2 | User can configure reminder time; app notifies when workload is due or streak is at risk |
+| FR-LC03 | Streak tracking | P2 | Review, drill, or mining activity can count as a valid learning day |
+| FR-LC04 | Streak risk state | P2 | App warns when today's streak is not yet protected |
+| FR-LC05 | Daily missions | P3 | App generates small tasks such as review cards, mine sentences, complete drills, or create review cards |
+| FR-LC06 | Coin rewards | P3 | Completed missions award local coins |
+| FR-LC07 | Streak rescue | P3 | User can spend coins to recover one missed day within a defined grace window |
+| FR-LC08 | Streak shield | P3 | User can spend or earn a shield that protects one future missed day |
+| FR-LC09 | Item system placeholder | P4 | Data/API design leaves room for future items without building a full shop/inventory |
+
+### 6.7 AI Module (v1.1)
 
 | ID | Requirement | Priority | Acceptance Criteria |
 |----|-------------|----------|---------------------|
