@@ -1,7 +1,11 @@
 {
   "name": "lexis",
-  "version": "1.0.1",
+  "version": "1.0.0",
   "description": "Sentence mining and Anki flashcard creation desktop app",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Duong-1309/lexis.git"
+  },
   "main": "out/main/main.js",
   "scripts": {
     "dev": "env -u ELECTRON_RUN_AS_NODE electron-vite dev",

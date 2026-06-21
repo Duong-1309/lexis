@@ -89,4 +89,6 @@ linux:
 # Publish config for auto-update
 publish:
   provider: github
+  owner: Duong-1309
+  repo: lexis
   releaseType: release

@@ -346,15 +346,19 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
 
                 {/* Release Notes */}
                 {(updateStatus === 'available' || updateStatus === 'ready') && updateInfo?.releaseNotes && (
-                  <div className="mb-3 p-3 bg-gray-900/50 border border-white/5 rounded-lg max-h-32 overflow-y-auto">
+                  <div className="mb-3 p-3 bg-gray-900/50 border border-white/5 rounded-lg max-h-40 overflow-y-auto">
                     <p className="text-xs font-medium text-gray-400 mb-1.5">What's new in v{updateInfo.version}:</p>
-                    <div className="text-xs text-gray-300 prose prose-invert prose-xs max-w-none">
+                    <div className="text-xs text-gray-300 release-notes">
                       {typeof updateInfo.releaseNotes === 'string' ? (
-                        <p className="whitespace-pre-wrap">{updateInfo.releaseNotes}</p>
+                        <div
+                          className="[&_h2]:text-sm [&_h2]:font-semibold [&_h2]:text-gray-200 [&_h2]:mt-2 [&_h2]:mb-1 [&_ul]:list-disc [&_ul]:ml-4 [&_ul]:space-y-0.5 [&_li]:text-gray-300 [&_p]:text-gray-400"
+                          dangerouslySetInnerHTML={{ __html: updateInfo.releaseNotes }}
+                        />
                       ) : (
                         updateInfo.releaseNotes.map((note, i) => (
                           <div key={i} className="mb-1">
-                            <span className="text-gray-500">{note.version}:</span> {note.note}
+                            <span className="text-gray-500">{note.version}:</span>{' '}
+                            <span dangerouslySetInnerHTML={{ __html: note.note }} />
                           </div>
                         ))
                       )}
@@ -632,7 +636,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="w-[680px] h-[520px] bg-gray-900 border border-white/10 rounded-xl shadow-2xl flex overflow-hidden">
+      <div className="w-[720px] h-[580px] bg-gray-900 border border-white/10 rounded-xl shadow-2xl flex overflow-hidden">
         {/* Sidebar */}
         <div className="w-44 bg-gray-900 border-r border-white/5 flex flex-col">
           <div className="p-4 border-b border-white/5">
