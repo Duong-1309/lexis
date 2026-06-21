@@ -344,6 +344,24 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
                   )}
                 </div>
 
+                {/* Release Notes */}
+                {(updateStatus === 'available' || updateStatus === 'ready') && updateInfo?.releaseNotes && (
+                  <div className="mb-3 p-3 bg-gray-900/50 border border-white/5 rounded-lg max-h-32 overflow-y-auto">
+                    <p className="text-xs font-medium text-gray-400 mb-1.5">What's new in v{updateInfo.version}:</p>
+                    <div className="text-xs text-gray-300 prose prose-invert prose-xs max-w-none">
+                      {typeof updateInfo.releaseNotes === 'string' ? (
+                        <p className="whitespace-pre-wrap">{updateInfo.releaseNotes}</p>
+                      ) : (
+                        updateInfo.releaseNotes.map((note, i) => (
+                          <div key={i} className="mb-1">
+                            <span className="text-gray-500">{note.version}:</span> {note.note}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {updateStatus === 'downloading' && updateProgress && (
                   <div className="w-full bg-gray-700 rounded-full h-1.5 mb-2">
                     <div
