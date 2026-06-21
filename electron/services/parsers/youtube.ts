@@ -29,20 +29,27 @@ export interface YouTubeVideoInfo {
 async function findYtDlp(): Promise<string | null> {
   const downloadedPath = getYtDlpPath()
   if (fs.existsSync(downloadedPath)) {
-    try {
-      await execFileAsync(downloadedPath, ['--version'])
-      return downloadedPath
-    } catch {
-      // Downloaded binary not working
-      return null
-    }
+    return downloadedPath
   }
   return null
 }
 
+// Fast check - just file existence (for UI display)
 export async function checkYtDlpAvailable(): Promise<boolean> {
   const ytdlp = await findYtDlp()
   return ytdlp !== null
+}
+
+// Verify binary actually works (slower, run --version)
+export async function verifyYtDlpWorks(): Promise<boolean> {
+  const downloadedPath = getYtDlpPath()
+  if (!fs.existsSync(downloadedPath)) return false
+  try {
+    await execFileAsync(downloadedPath, ['--version'], { timeout: 10000 })
+    return true
+  } catch {
+    return false
+  }
 }
 
 export async function getYouTubeVideoInfo(url: string): Promise<YouTubeVideoInfo> {

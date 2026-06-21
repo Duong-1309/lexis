@@ -1192,23 +1192,28 @@ sprint is about habit formation and user experience flow, not monetization.
 
 #### Task 10.14 — YouTube Subtitle Import ✅
 
-- **yt-dlp integration**: Uses system-installed `yt-dlp` binary for YouTube access.
+- **yt-dlp integration**: On-demand download of yt-dlp binary (~35MB).
 - **New files**:
   - `electron/services/parsers/vtt.ts` — VTT subtitle parser (YouTube format)
   - `electron/services/parsers/youtube.ts` — yt-dlp wrapper service
+  - `electron/services/ytdlp-download.ts` — On-demand yt-dlp binary download
 - **IPC handlers**:
-  - `youtube:check-available` — Checks if yt-dlp is installed
+  - `youtube:check-available` — Fast check if yt-dlp binary exists
+  - `youtube:is-downloaded` — Check download status
+  - `youtube:download-ytdlp` — Download yt-dlp binary with progress
   - `youtube:get-info` — Fetches video info and available subtitles
   - `youtube:import` — Downloads and imports subtitles as MediaSource
 - **UI**: New "YouTube" tab in ImportModal with:
+  - Download button for yt-dlp (one-time ~35MB download)
+  - Download progress bar
   - URL input field
   - Fetch button to retrieve video info
   - Subtitle language selector (manual vs auto-generated)
   - Import button
-  - Warning banner if yt-dlp not installed
 - **Database**: Migration v6 adds 'youtube' to `media_sources.type` CHECK constraint.
-- **Requirements**: User must install `yt-dlp` via `brew install yt-dlp`.
-- **Release v1.0.1**: YouTube import feature release.
+- **macOS compatibility**: Removes quarantine attribute after download (`xattr -d com.apple.quarantine`).
+- **Release v1.0.1**: YouTube import with system yt-dlp requirement.
+- **Release v1.1.0**: On-demand yt-dlp download (no terminal required).
 
 ### Sprint 10 Acceptance Tests
 
@@ -1234,6 +1239,663 @@ sprint is about habit formation and user experience flow, not monetization.
 - [x] yt-dlp not installed → warning banner with install instructions
 - [x] YouTube subtitles parsed correctly (VTT format) with timestamps
 - [x] Release v1.0.1 published with YouTube import feature
+- [x] Release v1.1.0: On-demand yt-dlp download (no terminal required)
+
+---
+
+## Sprint 11 — Import Library Management (Planned)
+
+### Sprint 11 Goal
+
+Users can organize, edit, and manage imported content: rename titles, group into folders/collections, add tags, filter/search library, and bulk operations.
+
+### Sprint 11 Tasks
+
+#### Task 11.1 — Edit Source Title
+
+- Add edit button/icon next to source title in Sidebar
+- Click → inline edit or modal with title input
+- Update `media_sources.title` in database
+- IPC: `media:rename(sourceId, newTitle)`
+- Applies to: YouTube, Web, EPUB, Text, Subtitle imports
+
+#### Task 11.2 — Folders/Collections
+
+- Add `collections` table:
+  ```sql
+  CREATE TABLE collections (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    color TEXT,           -- hex color for visual distinction
+    icon TEXT,            -- optional emoji/icon
+    parent_id INTEGER,    -- for nested folders (optional)
+    sort_order INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  ALTER TABLE media_sources ADD COLUMN collection_id INTEGER REFERENCES collections(id);
+  ```
+- UI: Collapsible folder tree in Sidebar
+- Drag-and-drop sources into folders
+- Create/rename/delete folders
+- IPC: `collections:create`, `collections:rename`, `collections:delete`, `media:move-to-collection`
+
+#### Task 11.3 — Source Tags
+
+- Add `source_tags` table:
+  ```sql
+  CREATE TABLE tags (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    color TEXT            -- hex color
+  );
+
+  CREATE TABLE source_tags (
+    source_id INTEGER NOT NULL REFERENCES media_sources(id) ON DELETE CASCADE,
+    tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+    PRIMARY KEY (source_id, tag_id)
+  );
+  ```
+- UI: Tag chips on source items, tag selector in source details
+- Create tags on-the-fly
+- Filter library by tag
+- IPC: `tags:create`, `tags:list`, `media:add-tag`, `media:remove-tag`
+
+#### Task 11.4 — Library Search & Filter
+
+- Search bar in Sidebar header
+- Search by: title, tags, collection, source type
+- Filter by:
+  - Type: subtitle, epub, youtube, web, text
+  - Language: en, ja, zh, ko, fr, es
+  - Progress: unread, in-progress, completed
+  - Date: imported this week/month/year
+- Sort by: name, date imported, last opened, progress
+
+#### Task 11.5 — Bulk Operations
+
+- Multi-select sources (Cmd/Ctrl+click, Shift+click)
+- Bulk actions:
+  - Move to collection
+  - Add/remove tags
+  - Delete selected
+  - Export (future)
+- Selection UI: checkboxes on hover, selection count badge
+
+#### Task 11.6 — Source Details Panel
+
+- Right-click source → "Show Details" or dedicated info button
+- Modal/panel showing:
+  - Editable title
+  - Source type + language
+  - Import date, last opened
+  - Progress (sentences read / total)
+  - Tags (editable)
+  - Collection (editable)
+  - Source URL (for web/youtube)
+  - File path (for local files)
+  - Stats: words mined, patterns mined
+
+### Sprint 11 Acceptance Tests
+
+- [ ] Can rename any imported source title
+- [ ] Can create folders and move sources into them
+- [ ] Can add/remove tags on sources
+- [ ] Can search library by title
+- [ ] Can filter by type, language, progress
+- [ ] Multi-select and bulk delete works
+- [ ] Source details panel shows all metadata
+
+---
+
+## Sprint 12 — Speech-to-Text & Speaking Practice (Planned)
+
+### Sprint 12 Goal
+
+Users can practice speaking through 3 modes: Pronunciation Practice (speak and compare), Dictation (listen and type), and Shadowing (listen, repeat, get feedback). STT uses Web Speech API by default with optional Whisper.cpp for offline/higher accuracy.
+
+### Sprint 12 Product Flow
+
+1. **Pronunciation Practice**
+   - User sees a sentence from their mined content
+   - User clicks mic → speaks the sentence
+   - App transcribes using STT
+   - App compares transcription with target, highlights differences
+   - Score: word accuracy %, phoneme-level feedback (if available)
+
+2. **Dictation Mode**
+   - App plays audio of a sentence (TTS or extracted audio)
+   - User types what they hear
+   - App compares typed text with original
+   - Highlights correct/incorrect words
+   - Track accuracy over time
+
+3. **Shadowing Mode**
+   - App plays sentence audio
+   - User repeats immediately after (or with delay)
+   - App records user's voice
+   - STT transcribes user's speech
+   - Compare with target, show feedback
+   - Optional: overlay waveforms for timing comparison
+
+### Sprint 12 Tasks
+
+#### Task 12.1 — Audio Recording Service
+
+Create `electron/services/audio-recorder.ts`:
+
+```typescript
+interface AudioRecorderService {
+  // Request microphone permission
+  requestPermission(): Promise<boolean>
+
+  // Start recording
+  startRecording(): Promise<void>
+
+  // Stop and get audio buffer
+  stopRecording(): Promise<AudioBuffer>
+
+  // Get audio as WAV file (for Whisper)
+  getWavBlob(): Promise<Blob>
+
+  // Check if recording
+  isRecording(): boolean
+}
+```
+
+- Use Web Audio API for recording
+- Convert to WAV format for Whisper compatibility
+- IPC: `audio:request-mic-permission`, `audio:start-recording`, `audio:stop-recording`
+
+#### Task 12.2 — Web Speech API STT (Phase 1)
+
+Create `src/services/web-speech-stt.ts` (renderer process):
+
+```typescript
+interface WebSpeechSTT {
+  // Check if available
+  isAvailable(): boolean
+
+  // Start recognition
+  startListening(language: Language): void
+
+  // Stop recognition
+  stopListening(): void
+
+  // Events
+  onResult(callback: (transcript: string, isFinal: boolean) => void): void
+  onError(callback: (error: string) => void): void
+}
+```
+
+- Uses `window.SpeechRecognition` or `window.webkitSpeechRecognition`
+- Runs in renderer (no IPC needed)
+- Supports interim results for real-time feedback
+- Language codes: en-US, ja-JP, zh-CN, ko-KR, fr-FR, es-ES
+
+#### Task 12.3 — Whisper.cpp Integration (Phase 2)
+
+Create `electron/services/whisper-stt.ts`:
+
+```typescript
+interface WhisperService {
+  // Check if model is downloaded
+  isModelDownloaded(size: 'tiny' | 'base'): boolean
+
+  // Download model (~75MB tiny, ~150MB base)
+  downloadModel(size: 'tiny' | 'base', onProgress: (p: number) => void): Promise<void>
+
+  // Transcribe audio file
+  transcribe(wavPath: string, language: Language): Promise<TranscriptionResult>
+
+  // Delete model
+  deleteModel(size: 'tiny' | 'base'): Promise<void>
+}
+
+interface TranscriptionResult {
+  text: string
+  segments: Array<{
+    start: number  // seconds
+    end: number
+    text: string
+    confidence: number
+  }>
+  language: string
+}
+```
+
+- Use `whisper.cpp` via child process or WASM
+- Models stored in `{userData}/models/whisper/`
+- Support: ggml-tiny.bin (~75MB), ggml-base.bin (~150MB)
+- On-demand download like yt-dlp
+
+#### Task 12.4 — STT Unified Interface
+
+Create `electron/services/stt.ts`:
+
+```typescript
+interface STTService {
+  // Get available engines
+  getAvailableEngines(): Promise<STTEngine[]>
+
+  // Get current engine
+  getCurrentEngine(): STTEngine
+
+  // Set preferred engine
+  setPreferredEngine(engine: 'web-speech' | 'whisper-tiny' | 'whisper-base'): void
+
+  // Transcribe (uses best available engine)
+  transcribe(audio: AudioBuffer | string, language: Language): Promise<string>
+}
+
+type STTEngine = {
+  id: string
+  name: string
+  offline: boolean
+  downloaded: boolean
+  size?: number
+}
+```
+
+- Fallback chain: Whisper (if downloaded) → Web Speech API
+- Settings UI to choose preferred engine
+
+#### Task 12.5 — Text Comparison & Scoring
+
+Create `src/utils/text-comparison.ts`:
+
+```typescript
+interface ComparisonResult {
+  score: number              // 0-100 accuracy
+  wordResults: WordResult[]  // per-word breakdown
+  errors: ErrorType[]        // categorized errors
+}
+
+interface WordResult {
+  expected: string
+  actual: string | null      // null if missing
+  status: 'correct' | 'wrong' | 'missing' | 'extra'
+  position: number
+}
+
+type ErrorType =
+  | 'missing_word'
+  | 'extra_word'
+  | 'wrong_word'
+  | 'word_order'
+  | 'pronunciation'  // sounds similar but wrong
+
+function compareTranscription(
+  expected: string,
+  actual: string,
+  language: Language
+): ComparisonResult
+```
+
+- Normalize text (lowercase, remove punctuation)
+- Handle homophones and common STT errors
+- Language-specific rules (particles in Japanese, tones in Chinese)
+
+#### Task 12.6 — Pronunciation Practice UI
+
+Create `src/components/Practice/PronunciationPractice.tsx`:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Pronunciation Practice          [Settings] [Close]     │
+├─────────────────────────────────────────────────────────┤
+│                                                         │
+│  "The quick brown fox jumps over the lazy dog."        │
+│                                                         │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │  🎤  Hold to speak...                            │   │
+│  └─────────────────────────────────────────────────┘   │
+│                                                         │
+│  Your speech:                                           │
+│  "The quick brown [fox] jumps over the [lazy] dog."   │
+│                     ^^^                 ^^^^            │
+│                   (missed)            (wrong: "lady")   │
+│                                                         │
+│  Score: 85%    [Try Again]    [Next Sentence →]        │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+```
+
+- Source sentences from: current reader, mined patterns, custom input
+- Real-time waveform while recording
+- Color-coded word comparison (green=correct, red=wrong, yellow=missing)
+- Track history and improvement over time
+
+#### Task 12.7 — Dictation Mode UI
+
+Create `src/components/Practice/DictationPractice.tsx`:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Dictation Practice              [Settings] [Close]     │
+├─────────────────────────────────────────────────────────┤
+│                                                         │
+│  🔊 [▶ Play]  [▶ Play Slow]  [Repeat: 2]               │
+│                                                         │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │  Type what you hear...                           │   │
+│  │  _                                               │   │
+│  └─────────────────────────────────────────────────┘   │
+│                                                         │
+│  [Check Answer]                                         │
+│                                                         │
+│  ─────────────────────────────────────────────────────  │
+│  After check:                                           │
+│  Your answer:  "The quick brown fox jumps..."          │
+│  Correct:      "The quick brown fox jumps..."          │
+│  Score: 100%   ✓ Perfect!                              │
+│                                                         │
+│  [Next Sentence →]                                      │
+└─────────────────────────────────────────────────────────┘
+```
+
+- Audio sources: TTS, YouTube audio (if available), extracted audio
+- Adjustable playback speed (0.5x, 0.75x, 1x)
+- Hint system: show first letter, show word count
+- Keyboard shortcuts: Space=play, Enter=check
+
+#### Task 12.8 — Shadowing Mode UI
+
+Create `src/components/Practice/ShadowingPractice.tsx`:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Shadowing Practice              [Settings] [Close]     │
+├─────────────────────────────────────────────────────────┤
+│                                                         │
+│  "The quick brown fox jumps over the lazy dog."        │
+│                                                         │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │  Original:  ▂▃▅▇█▇▅▃▂▁▂▃▅▇█▇▅▃▂                │   │
+│  │  Your voice: ▂▃▅▇█▇▅▃▂▁▂▃▅▇█▇▅▃▂               │   │
+│  └─────────────────────────────────────────────────┘   │
+│                                                         │
+│  Mode: [Immediate] [Delayed 1s] [Delayed 2s]           │
+│                                                         │
+│  [▶ Start]  [⏹ Stop]  [🔄 Reset]                       │
+│                                                         │
+│  Results:                                               │
+│  - Timing: 92% match                                   │
+│  - Accuracy: 88%                                       │
+│  - Missed words: "lazy"                                │
+│                                                         │
+│  [Save Attempt]  [Next Sentence →]                     │
+└─────────────────────────────────────────────────────────┘
+```
+
+- Play audio → auto-record user after delay
+- Waveform visualization for timing comparison
+- Three modes: immediate echo, 1s delay, 2s delay
+- Integration with Pattern Drill (shadowing as drill type)
+
+#### Task 12.9 — Practice Session & Stats
+
+Create `src/components/Practice/PracticeSession.tsx`:
+
+- Unified practice session combining all modes
+- Session config: mode, duration, source (current reader, deck, all)
+- Track stats:
+  - Total practice time
+  - Sentences practiced
+  - Average accuracy by mode
+  - Improvement over time (weekly/monthly graphs)
+- Save practice history to DB:
+  ```sql
+  CREATE TABLE practice_sessions (
+    id INTEGER PRIMARY KEY,
+    mode TEXT NOT NULL,        -- 'pronunciation' | 'dictation' | 'shadowing'
+    source_id INTEGER,
+    sentence_id INTEGER,
+    language TEXT NOT NULL,
+    score INTEGER,             -- 0-100
+    transcript TEXT,           -- user's transcribed speech
+    target_text TEXT,
+    duration_ms INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  ```
+
+#### Task 12.10 — Settings & Model Management
+
+Update Settings UI:
+
+```
+Speech Recognition
+├── Engine: [Web Speech API ▼] / [Whisper Tiny] / [Whisper Base]
+├── Whisper Models:
+│   ├── Tiny (75 MB)  [Download] / [Downloaded ✓] [Delete]
+│   └── Base (150 MB) [Download] / [Downloaded ✓] [Delete]
+├── Auto-detect language: [✓]
+└── Microphone: [Default ▼]
+
+Practice Settings
+├── Default mode: [Pronunciation ▼]
+├── Shadowing delay: [1 second ▼]
+├── Playback speed: [1.0x ▼]
+└── Show hints: [✓]
+```
+
+### Sprint 12 Acceptance Tests
+
+- [ ] Web Speech API transcribes spoken English sentence
+- [ ] Web Speech API works for Japanese, Chinese, Korean
+- [ ] Whisper model downloads with progress bar
+- [ ] Whisper transcribes offline accurately
+- [ ] Fallback: Whisper → Web Speech API when model not downloaded
+- [ ] Pronunciation practice shows word-by-word comparison
+- [ ] Dictation mode plays audio and checks typed answer
+- [ ] Shadowing mode records and compares with original
+- [ ] Practice stats saved and displayed
+- [ ] Settings allow switching STT engine
+
+### Sprint 12 Technical Notes
+
+**Whisper.cpp options:**
+1. **whisper.cpp binary** - Compile for each platform, call via child_process
+2. **whisper-node** - Node.js bindings (may have ABI issues with Electron)
+3. **whisper.wasm** - WebAssembly version, runs in renderer (slower but portable)
+
+**Recommendation:** Start with whisper.wasm for portability, optimize later if needed.
+
+**Model hosting:**
+- Host models on GitHub Releases or CDN
+- Same pattern as yt-dlp download
+- Checksum verification after download
+
+---
+
+## Next Release — v1.2.0 (Planned)
+
+### Release Goal
+
+Bug fixes + Import Library Management MVP (edit title, basic organization).
+
+### Priority 1 — Bug Fixes
+
+- [ ] **Word click line shift bug** — Click word không được làm lệch layout
+- [ ] Fast YouTube tab load (done in v1.1.0, verify)
+
+### Priority 2 — Import Management MVP
+
+- [ ] **Edit source title** — Rename YouTube/Web/EPUB/Text imports
+- [ ] **Delete confirmation** — Better UX for delete action
+- [ ] **Source details tooltip** — Hover to see import date, type, progress
+
+### Priority 3 — Polish
+
+- [ ] Loading states cho các async operations
+- [ ] Error messages rõ ràng hơn
+- [ ] Keyboard shortcuts documentation (Help modal)
+
+### Deferred to v1.3.0+
+
+- Folders/Collections (Sprint 11.2)
+- Tags system (Sprint 11.3)
+- Full search & filter (Sprint 11.4)
+- Bulk operations (Sprint 11.5)
+- Speech-to-Text (Sprint 12)
+- SRS Algorithm Improvements (Sprint 13)
+
+---
+
+## SRS Algorithm Backlog (Sprint 13 - Planned)
+
+### Gap Analysis: algorithm.txt vs Current Implementation
+
+Based on `algorithm.txt` recommendations and Anki/FSRS best practices.
+
+### Phase 1 — Quick Fixes (v1.2.0)
+
+- [ ] **Reduce learning steps from 3 to 2**
+  - Current: step 0 → 1 → 2 → graduate (3 steps)
+  - Target: step 0 → 1 → graduate (2 steps: 1min, 10min)
+  - Change: Graduate at `stepIndex >= 2` instead of `>= 3`
+
+- [ ] **Fix queue priority order**
+  - Current: `ORDER BY card_state DESC` (alphabetical = wrong)
+  - Target: `relearning > learning > review > new`
+  - Implement proper priority sorting
+
+- [ ] **Allow ending session with learning cards pending**
+  - Current: Must rate Good on ALL learning cards to end
+  - Target: "End Session" button saves learning cards for later
+
+### Phase 2 — Config & Limits (v1.3.0)
+
+- [ ] **Add `newCardsPerDay` limit**
+  - Default: 20
+  - Configurable in Settings
+  - Query: Only fetch N new cards per day
+
+- [ ] **Add `maxReviewPerDay` limit**
+  - Default: 200 (or unlimited)
+  - Configurable in Settings
+  - Warning when approaching limit
+
+- [ ] **Make learning steps configurable**
+  ```typescript
+  // Settings UI
+  learningStepsMinutes: [1, 10]      // default
+  relearningStepsMinutes: [10]       // default
+  graduatingIntervalDays: 1
+  easyIntervalDays: 4
+  ```
+
+- [ ] **Add 'relearning' card state**
+  - Current: only 'new', 'learning', 'review', 'suspended'
+  - Add: 'relearning' for lapsed cards re-entering steps
+
+- [ ] **Separate queues in ReviewSession**
+  - Due review cards (overdue first)
+  - Learning/relearning cards (by due time)
+  - New cards (limited by daily cap)
+
+### Phase 3 — FSRS Preparation (v1.4.0+)
+
+- [ ] **Extend Card schema for FSRS**
+  ```sql
+  ALTER TABLE cards ADD COLUMN difficulty REAL;      -- D: 1-10
+  ALTER TABLE cards ADD COLUMN stability REAL;       -- S: days
+  ALTER TABLE cards ADD COLUMN last_reviewed_at TEXT;
+  ```
+
+- [ ] **Enhance ReviewLog for FSRS training**
+  ```sql
+  ALTER TABLE review_log ADD COLUMN elapsed_days REAL;
+  ALTER TABLE review_log ADD COLUMN state_before TEXT;
+  ALTER TABLE review_log ADD COLUMN state_after TEXT;
+  ```
+
+- [ ] **Create Scheduler interface**
+  ```typescript
+  interface Scheduler {
+    review(card: Card, rating: Rating, now: Date): Card;
+    getNextInterval(card: Card, rating: Rating): number;
+    estimateRetention(card: Card, now: Date): number;
+  }
+
+  class SM2Scheduler implements Scheduler {}
+  class FSRSLiteScheduler implements Scheduler {}
+  ```
+
+- [ ] **Implement FSRS-lite**
+  - Difficulty, Stability, Retrievability model
+  - `desiredRetention` setting (default 0.9)
+  - Forgetting curve: `R(t, S) = (1 + t / (9 × S)) ^ -1`
+
+- [ ] **Settings: Scheduler selection**
+  - SM-2 (current, default)
+  - FSRS-lite (experimental)
+
+### Data Model Changes Required
+
+**Card table additions:**
+```sql
+-- Phase 2
+ALTER TABLE cards ADD COLUMN relearning_step INTEGER DEFAULT 0;
+
+-- Phase 3 (FSRS)
+ALTER TABLE cards ADD COLUMN difficulty REAL DEFAULT 5.0;
+ALTER TABLE cards ADD COLUMN stability REAL;
+ALTER TABLE cards ADD COLUMN last_reviewed_at TEXT;
+```
+
+**ReviewLog enhancements:**
+```sql
+ALTER TABLE review_log ADD COLUMN elapsed_days REAL;
+ALTER TABLE review_log ADD COLUMN state_before TEXT;
+ALTER TABLE review_log ADD COLUMN state_after TEXT;
+ALTER TABLE review_log ADD COLUMN retrievability REAL;  -- for FSRS
+```
+
+**Settings additions:**
+```typescript
+interface SRSSettings {
+  scheduler: 'sm2' | 'fsrs-lite';
+  newCardsPerDay: number;           // default 20
+  maxReviewsPerDay: number;         // default 200, 0 = unlimited
+  learningSteps: number[];          // default [1, 10] minutes
+  relearningSteps: number[];        // default [10] minutes
+  graduatingInterval: number;       // default 1 day
+  easyInterval: number;             // default 4 days
+  desiredRetention: number;         // default 0.9 (FSRS only)
+}
+```
+
+### Reference
+
+See `algorithm.txt` for detailed algorithm explanations:
+- SM-2 formula and implementation
+- FSRS-lite simplified implementation
+- Learning steps logic
+- Queue priority rules
+
+---
+
+## Known Bugs & Issues
+
+### Bug: Word click causes line height shift (Priority: High)
+
+**Reported:** 2026-06-21
+
+**Symptom:** When clicking on a word in Reader, the line expands/shifts, causing adjacent words to move. This makes the user accidentally click on the wrong word.
+
+**Likely cause:** CSS styling on selected/highlighted word adds padding, border, or changes box model, causing text reflow.
+
+**Location:** `src/components/Reader/SentenceRow.tsx` or related CSS
+
+**Fix approach:**
+- Use `outline` instead of `border` (doesn't affect layout)
+- Use `box-shadow` for highlight effect
+- Ensure `display: inline` with no padding/margin changes on click
+- Or use `box-sizing: border-box` with fixed dimensions
+
+**Status:** Open
 
 ---
 
@@ -1248,4 +1910,4 @@ sprint is about habit formation and user experience flow, not monetization.
 
 ---
 
-End of Implementation Plan v2.4 (Sprint 10 complete, v1.0.1 released, YouTube import)
+End of Implementation Plan v2.7 (Sprint 10 complete, v1.1.0 released, Sprint 11-13 planned)
