@@ -52,6 +52,9 @@ mac:
     - target: dmg
       arch:
         - arm64
+    - target: zip
+      arch:
+        - arm64
   icon: buildResources/icon.icns
   category: public.app-category.education
   electronLanguages:
