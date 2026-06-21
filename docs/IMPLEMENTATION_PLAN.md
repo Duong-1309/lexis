@@ -1190,6 +1190,26 @@ sprint is about habit formation and user experience flow, not monetization.
   - `latest-mac.yml` — Auto-updater metadata
 - **macOS unsigned app workaround**: `xattr -cr /Applications/Lexis.app`
 
+#### Task 10.14 — YouTube Subtitle Import ✅
+
+- **yt-dlp integration**: Uses system-installed `yt-dlp` binary for YouTube access.
+- **New files**:
+  - `electron/services/parsers/vtt.ts` — VTT subtitle parser (YouTube format)
+  - `electron/services/parsers/youtube.ts` — yt-dlp wrapper service
+- **IPC handlers**:
+  - `youtube:check-available` — Checks if yt-dlp is installed
+  - `youtube:get-info` — Fetches video info and available subtitles
+  - `youtube:import` — Downloads and imports subtitles as MediaSource
+- **UI**: New "YouTube" tab in ImportModal with:
+  - URL input field
+  - Fetch button to retrieve video info
+  - Subtitle language selector (manual vs auto-generated)
+  - Import button
+  - Warning banner if yt-dlp not installed
+- **Database**: Migration v6 adds 'youtube' to `media_sources.type` CHECK constraint.
+- **Requirements**: User must install `yt-dlp` via `brew install yt-dlp`.
+- **Release v1.0.1**: YouTube import feature release.
+
 ### Sprint 10 Acceptance Tests
 
 - [x] Dashboard shows one clear next action for a returning user
@@ -1210,6 +1230,10 @@ sprint is about habit formation and user experience flow, not monetization.
 - [x] Auto-update UI shows version and update status in Settings
 - [x] Release notes displayed when update available
 - [x] First release v1.0.0 published on GitHub
+- [x] YouTube URL → fetch video info → select subtitle language → import
+- [x] yt-dlp not installed → warning banner with install instructions
+- [x] YouTube subtitles parsed correctly (VTT format) with timestamps
+- [x] Release v1.0.1 published with YouTube import feature
 
 ---
 
@@ -1224,4 +1248,4 @@ sprint is about habit formation and user experience flow, not monetization.
 
 ---
 
-End of Implementation Plan v2.3 (Sprint 10 complete, v1.0.0 released, manual update flow)
+End of Implementation Plan v2.4 (Sprint 10 complete, v1.0.1 released, YouTube import)
