@@ -14,6 +14,7 @@ import { parseASS } from './services/parsers/ass'
 import { parseEPUBChapters, loadEPUBChapter } from './services/parsers/epub'
 import { parsePlainText } from './services/parsers/text'
 import { fetchWebArticle } from './services/parsers/web'
+import { checkYtDlpAvailable, getYouTubeVideoInfo, downloadYouTubeSubtitle } from './services/parsers/youtube'
 import { calculateNextReview } from './services/srs'
 import { getSettings, setSettings } from './services/settings'
 import { getDailyMissions, claimMissionReward } from './services/missions'
@@ -375,6 +376,41 @@ function setupIPCHandlers(): void {
   ipcMain.handle('media:mark-opened', (_event, sourceId: number) =>
     wrapResult(() => db.markOpened(sourceId)),
   )
+
+  // ─── youtube ────────────────────────────────────────────────────────────────
+  ipcMain.handle('youtube:check-available', () =>
+    wrapResult(() => checkYtDlpAvailable()),
+  )
+
+  ipcMain.handle('youtube:get-info', (_event, url: string) =>
+    wrapResult(() => getYouTubeVideoInfo(url)),
+  )
+
+  ipcMain.handle('youtube:import', async (_event, url: string, langCode: string, language: Language) => {
+    return wrapResult(async () => {
+      const { title, entries } = await downloadYouTubeSubtitle(url, langCode)
+
+      const source = db.insertMediaSource({
+        type: 'youtube',
+        title,
+        sourceUrl: url,
+        language,
+        sentenceCount: entries.length,
+      })
+
+      db.insertSentences(
+        entries.map((e, i) => ({
+          sourceId: source.id,
+          content: e.text,
+          position: i,
+          startTimeMs: e.startTimeMs,
+          endTimeMs: e.endTimeMs,
+        })),
+      )
+
+      return source as MediaSource
+    })
+  })
 
   // ─── reader ─────────────────────────────────────────────────────────────────
   ipcMain.handle('reader:load-subtitle', (_event, sourceId: number) =>

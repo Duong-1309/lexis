@@ -472,6 +472,43 @@ export class DatabaseService {
           PRAGMA foreign_keys=ON;
         `,
       },
+      {
+        version: 6,
+        sql: `
+          PRAGMA foreign_keys=OFF;
+
+          CREATE TABLE media_sources_new (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            type           TEXT    NOT NULL CHECK(type IN ('subtitle', 'epub', 'web', 'text', 'youtube')),
+            title          TEXT    NOT NULL,
+            file_path      TEXT,
+            source_url     TEXT,
+            language       TEXT    NOT NULL,
+            word_count     INTEGER,
+            sentence_count INTEGER,
+            cover_image    BLOB,
+            added_at       TEXT    NOT NULL DEFAULT (datetime('now')),
+            last_opened    TEXT
+          );
+
+          INSERT INTO media_sources_new (
+            id, type, title, file_path, source_url, language, word_count,
+            sentence_count, cover_image, added_at, last_opened
+          )
+          SELECT
+            id, type, title, file_path, source_url, language, word_count,
+            sentence_count, cover_image, added_at, last_opened
+          FROM media_sources;
+
+          DROP TABLE media_sources;
+          ALTER TABLE media_sources_new RENAME TO media_sources;
+
+          CREATE INDEX IF NOT EXISTS idx_media_sources_language ON media_sources(language);
+          CREATE INDEX IF NOT EXISTS idx_media_sources_added ON media_sources(added_at DESC);
+
+          PRAGMA foreign_keys=ON;
+        `,
+      },
     ]
 
     this.db.exec(`

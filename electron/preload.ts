@@ -45,6 +45,12 @@ const lexisAPI: LexisAPI = {
     markOpened: (sourceId) => ipcRenderer.invoke('media:mark-opened', sourceId),
   },
 
+  youtube: {
+    checkAvailable: () => ipcRenderer.invoke('youtube:check-available'),
+    getInfo: (url) => ipcRenderer.invoke('youtube:get-info', url),
+    import: (url, langCode, language) => ipcRenderer.invoke('youtube:import', url, langCode, language),
+  },
+
   reader: {
     loadSubtitleSentences: (sourceId) => ipcRenderer.invoke('reader:load-subtitle', sourceId),
     loadEPUBChapters: (sourceId) => ipcRenderer.invoke('reader:load-epub-chapters', sourceId),

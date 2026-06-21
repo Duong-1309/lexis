@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Language, MediaSource } from '../types'
+import type { Language, MediaSource, YouTubeVideoInfo, YouTubeSubtitleInfo } from '../types'
 
 interface Props {
   onImported: (source: MediaSource) => void
   onClose: () => void
 }
 
-type ImportMode = 'file' | 'text' | 'web'
+type ImportMode = 'file' | 'text' | 'web' | 'youtube'
 type FileImportType = 'subtitle' | 'epub'
 
 const SUBTITLE_EXTS = ['.srt', '.ass', '.ssa']
@@ -35,6 +35,11 @@ export function ImportModal({ onImported, onClose }: Props) {
   const [textTitle, setTextTitle] = useState('')
   const [textContent, setTextContent] = useState('')
   const [webUrl, setWebUrl] = useState('')
+  const [youtubeUrl, setYoutubeUrl] = useState('')
+  const [youtubeInfo, setYoutubeInfo] = useState<YouTubeVideoInfo | null>(null)
+  const [selectedSubLang, setSelectedSubLang] = useState<string>('')
+  const [ytdlpAvailable, setYtdlpAvailable] = useState<boolean | null>(null)
+  const [fetchingInfo, setFetchingInfo] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const overlayRef = useRef<HTMLDivElement>(null)
   const dragCounter = useRef(0)
@@ -119,6 +124,43 @@ export function ImportModal({ onImported, onClose }: Props) {
     onImported(result.data!)
   }
 
+  // Check yt-dlp availability when switching to YouTube mode
+  useEffect(() => {
+    if (importMode === 'youtube' && ytdlpAvailable === null) {
+      window.lexis.youtube.checkAvailable().then((r) => {
+        setYtdlpAvailable(r.data ?? false)
+      })
+    }
+  }, [importMode, ytdlpAvailable])
+
+  const onFetchYouTubeInfo = async () => {
+    setError(null)
+    setYoutubeInfo(null)
+    setSelectedSubLang('')
+    setFetchingInfo(true)
+    const result = await window.lexis.youtube.getInfo(youtubeUrl.trim())
+    setFetchingInfo(false)
+    if (result.error) {
+      setError(result.error)
+      return
+    }
+    setYoutubeInfo(result.data!)
+    // Auto-select first English subtitle, or first available
+    const subs = result.data!.subtitles
+    const enSub = subs.find(s => s.langCode.startsWith('en'))
+    setSelectedSubLang(enSub?.langCode || subs[0]?.langCode || '')
+  }
+
+  const onImportYouTube = async () => {
+    if (!youtubeInfo || !selectedSubLang) return
+    setError(null)
+    setSubmitting(true)
+    const result = await window.lexis.youtube.import(youtubeUrl.trim(), selectedSubLang, language)
+    setSubmitting(false)
+    if (result.error) { setError(result.error); return }
+    onImported(result.data!)
+  }
+
   const onClickOverlay = (e: React.MouseEvent) => {
     if (e.target === overlayRef.current) onClose()
   }
@@ -148,7 +190,7 @@ export function ImportModal({ onImported, onClose }: Props) {
 
         {/* Source toggle */}
         <div className="flex bg-gray-800 rounded-lg p-1 mb-4">
-          {(['file', 'text', 'web'] as ImportMode[]).map((mode) => (
+          {(['file', 'text', 'web', 'youtube'] as ImportMode[]).map((mode) => (
             <button
               key={mode}
               onClick={() => { setImportMode(mode); setError(null) }}
@@ -158,7 +200,7 @@ export function ImportModal({ onImported, onClose }: Props) {
                   : 'text-gray-500 hover:text-gray-300'
               }`}
             >
-              {mode === 'file' ? 'File' : mode === 'text' ? 'Paste Text' : 'Web URL'}
+              {mode === 'file' ? 'File' : mode === 'text' ? 'Text' : mode === 'web' ? 'Web' : 'YouTube'}
             </button>
           ))}
         </div>
@@ -286,6 +328,73 @@ export function ImportModal({ onImported, onClose }: Props) {
           </div>
         )}
 
+        {importMode === 'youtube' && (
+          <div className="space-y-3">
+            {ytdlpAvailable === false && (
+              <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                <p className="text-xs text-yellow-400">
+                  yt-dlp is required for YouTube imports. Install with: <code className="bg-gray-800 px-1.5 py-0.5 rounded">brew install yt-dlp</code>
+                </p>
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <input
+                value={youtubeUrl}
+                onChange={(e) => setYoutubeUrl(e.target.value)}
+                className="flex-1 bg-gray-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-blue-500"
+                placeholder="https://youtube.com/watch?v=..."
+                disabled={ytdlpAvailable === false}
+              />
+              <button
+                onClick={onFetchYouTubeInfo}
+                disabled={fetchingInfo || !youtubeUrl.trim() || ytdlpAvailable === false}
+                className="px-4 py-2 text-sm font-medium bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {fetchingInfo ? 'Loading...' : 'Fetch'}
+              </button>
+            </div>
+
+            {youtubeInfo && (
+              <div className="p-3 bg-gray-800/50 border border-white/10 rounded-lg space-y-3">
+                <div>
+                  <p className="text-sm font-medium text-gray-200 line-clamp-2">{youtubeInfo.title}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{youtubeInfo.channel}</p>
+                </div>
+
+                {youtubeInfo.subtitles.length === 0 ? (
+                  <p className="text-xs text-red-400">No subtitles available for this video.</p>
+                ) : (
+                  <>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1.5">Subtitle Language</label>
+                      <select
+                        value={selectedSubLang}
+                        onChange={(e) => setSelectedSubLang(e.target.value)}
+                        className="w-full bg-gray-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-blue-500"
+                      >
+                        {youtubeInfo.subtitles.map((sub) => (
+                          <option key={sub.langCode} value={sub.langCode}>
+                            {sub.langName} {sub.isAutoGenerated ? '(Auto)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <button
+                      onClick={onImportYouTube}
+                      disabled={submitting || !selectedSubLang}
+                      className="w-full py-2.5 text-sm font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      {submitting ? 'Importing...' : 'Import Subtitles'}
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {error && (
           <p className="mt-3 text-xs text-red-400 text-center">{error}</p>
         )}
@@ -295,9 +404,11 @@ export function ImportModal({ onImported, onClose }: Props) {
             ? 'Pasted text is split into readable sentences for mining.'
             : importMode === 'web'
               ? 'Readable article text is extracted and stored locally.'
-              : importType === 'subtitle'
-            ? 'Supports SubRip (.srt) and Advanced SubStation (.ass/.ssa)'
-            : 'Supports EPUB 2 and EPUB 3. DRM-protected files cannot be opened.'}
+              : importMode === 'youtube'
+                ? 'Downloads subtitles from YouTube videos using yt-dlp.'
+                : importType === 'subtitle'
+                  ? 'Supports SubRip (.srt) and Advanced SubStation (.ass/.ssa)'
+                  : 'Supports EPUB 2 and EPUB 3. DRM-protected files cannot be opened.'}
         </p>
       </div>
     </div>
