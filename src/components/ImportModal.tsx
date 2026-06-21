@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Language, MediaSource, YouTubeVideoInfo, YouTubeSubtitleInfo } from '../types'
+import type { Language, MediaSource, YouTubeVideoInfo, YouTubeSubtitleInfo, YtDlpDownloadProgress } from '../types'
 
 interface Props {
   onImported: (source: MediaSource) => void
@@ -39,6 +39,8 @@ export function ImportModal({ onImported, onClose }: Props) {
   const [youtubeInfo, setYoutubeInfo] = useState<YouTubeVideoInfo | null>(null)
   const [selectedSubLang, setSelectedSubLang] = useState<string>('')
   const [ytdlpAvailable, setYtdlpAvailable] = useState<boolean | null>(null)
+  const [ytdlpDownloading, setYtdlpDownloading] = useState(false)
+  const [ytdlpDownloadProgress, setYtdlpDownloadProgress] = useState<YtDlpDownloadProgress | null>(null)
   const [fetchingInfo, setFetchingInfo] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const overlayRef = useRef<HTMLDivElement>(null)
@@ -132,6 +134,37 @@ export function ImportModal({ onImported, onClose }: Props) {
       })
     }
   }, [importMode, ytdlpAvailable])
+
+  // Set up download progress listener
+  useEffect(() => {
+    if (importMode === 'youtube') {
+      window.lexis.youtube.onDownloadProgress((progress) => {
+        setYtdlpDownloadProgress(progress)
+        if (progress.stage === 'done') {
+          setYtdlpDownloading(false)
+          setYtdlpAvailable(true)
+        } else if (progress.stage === 'error') {
+          setYtdlpDownloading(false)
+          setError(progress.error || 'Download failed')
+        }
+      })
+      return () => {
+        window.lexis.youtube.removeDownloadListeners()
+      }
+    }
+  }, [importMode])
+
+  const onDownloadYtDlp = async () => {
+    setError(null)
+    setYtdlpDownloading(true)
+    setYtdlpDownloadProgress({ stage: 'downloading', percent: 0 })
+    const result = await window.lexis.youtube.downloadYtDlp()
+    if (result.error) {
+      setError(result.error)
+      setYtdlpDownloading(false)
+    }
+    // Progress updates handled by listener
+  }
 
   const onFetchYouTubeInfo = async () => {
     setError(null)
@@ -330,30 +363,55 @@ export function ImportModal({ onImported, onClose }: Props) {
 
         {importMode === 'youtube' && (
           <div className="space-y-3">
-            {ytdlpAvailable === false && (
-              <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-                <p className="text-xs text-yellow-400">
-                  yt-dlp is required for YouTube imports. Install with: <code className="bg-gray-800 px-1.5 py-0.5 rounded">brew install yt-dlp</code>
+            {ytdlpAvailable === false && !ytdlpDownloading && (
+              <div className="p-4 bg-gray-800/50 border border-white/10 rounded-lg text-center">
+                <p className="text-sm text-gray-300 mb-3">
+                  YouTube import requires a small download (~35MB)
                 </p>
+                <button
+                  onClick={onDownloadYtDlp}
+                  className="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
+                >
+                  Download YouTube Support
+                </button>
               </div>
             )}
 
-            <div className="flex gap-2">
-              <input
-                value={youtubeUrl}
-                onChange={(e) => setYoutubeUrl(e.target.value)}
-                className="flex-1 bg-gray-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-blue-500"
-                placeholder="https://youtube.com/watch?v=..."
-                disabled={ytdlpAvailable === false}
-              />
-              <button
-                onClick={onFetchYouTubeInfo}
-                disabled={fetchingInfo || !youtubeUrl.trim() || ytdlpAvailable === false}
-                className="px-4 py-2 text-sm font-medium bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg transition-colors disabled:opacity-50"
-              >
-                {fetchingInfo ? 'Loading...' : 'Fetch'}
-              </button>
-            </div>
+            {ytdlpDownloading && ytdlpDownloadProgress && (
+              <div className="p-4 bg-gray-800/50 border border-white/10 rounded-lg">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm text-gray-300">
+                    {ytdlpDownloadProgress.stage === 'downloading' ? 'Downloading...' :
+                     ytdlpDownloadProgress.stage === 'verifying' ? 'Verifying...' : 'Processing...'}
+                  </span>
+                  <span className="text-sm text-gray-400">{ytdlpDownloadProgress.percent}%</span>
+                </div>
+                <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-blue-500 transition-all duration-300"
+                    style={{ width: `${ytdlpDownloadProgress.percent}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {ytdlpAvailable && (
+              <div className="flex gap-2">
+                <input
+                  value={youtubeUrl}
+                  onChange={(e) => setYoutubeUrl(e.target.value)}
+                  className="flex-1 bg-gray-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-blue-500"
+                  placeholder="https://youtube.com/watch?v=..."
+                />
+                <button
+                  onClick={onFetchYouTubeInfo}
+                  disabled={fetchingInfo || !youtubeUrl.trim()}
+                  className="px-4 py-2 text-sm font-medium bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {fetchingInfo ? 'Loading...' : 'Fetch'}
+                </button>
+              </div>
+            )}
 
             {youtubeInfo && (
               <div className="p-3 bg-gray-800/50 border border-white/10 rounded-lg space-y-3">

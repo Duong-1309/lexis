@@ -512,8 +512,18 @@ export interface YouTubeVideoInfo {
   subtitles: YouTubeSubtitleInfo[]
 }
 
+export interface YtDlpDownloadProgress {
+  stage: 'downloading' | 'verifying' | 'done' | 'error'
+  percent: number
+  error?: string
+}
+
 export interface YouTubeAPI {
   checkAvailable(): Promise<IPCResult<boolean>>
+  isDownloaded(): Promise<IPCResult<boolean>>
+  downloadYtDlp(): Promise<IPCResult<void>>
+  onDownloadProgress(callback: (progress: YtDlpDownloadProgress) => void): void
+  removeDownloadListeners(): void
   getInfo(url: string): Promise<IPCResult<YouTubeVideoInfo>>
   import(url: string, langCode: string, language: Language): Promise<IPCResult<MediaSource>>
 }

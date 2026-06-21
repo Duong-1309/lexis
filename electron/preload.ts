@@ -27,6 +27,7 @@ import type {
   DictionaryInfo,
   DictionaryId,
   DictionaryDownloadProgress,
+  YtDlpDownloadProgress,
   UserSettings,
   IPCResult,
   LexisAPI,
@@ -47,6 +48,14 @@ const lexisAPI: LexisAPI = {
 
   youtube: {
     checkAvailable: () => ipcRenderer.invoke('youtube:check-available'),
+    isDownloaded: () => ipcRenderer.invoke('youtube:is-downloaded'),
+    downloadYtDlp: () => ipcRenderer.invoke('youtube:download-ytdlp'),
+    onDownloadProgress: (callback) => {
+      ipcRenderer.on('youtube:download-progress', (_event, progress) => callback(progress))
+    },
+    removeDownloadListeners: () => {
+      ipcRenderer.removeAllListeners('youtube:download-progress')
+    },
     getInfo: (url) => ipcRenderer.invoke('youtube:get-info', url),
     import: (url, langCode, language) => ipcRenderer.invoke('youtube:import', url, langCode, language),
   },

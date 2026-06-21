@@ -2,9 +2,10 @@ import { execFile, exec } from 'child_process'
 import { promisify } from 'util'
 import fs from 'fs'
 import path from 'path'
-import os from 'os'
+import os from 'os'  // Used for temp directory
 import { parseVTT } from './vtt'
 import { parseSRT } from './srt'
+import { getYtDlpPath } from '../ytdlp-download'
 import type { SubtitleEntry } from './srt'
 
 const execFileAsync = promisify(execFile)
@@ -24,24 +25,18 @@ export interface YouTubeVideoInfo {
   subtitles: YouTubeSubtitleInfo[]
 }
 
-// Find yt-dlp binary
+// Find yt-dlp binary - only use app's downloaded version for consistency
 async function findYtDlp(): Promise<string | null> {
-  const possiblePaths = [
-    'yt-dlp', // In PATH
-    '/usr/local/bin/yt-dlp',
-    '/opt/homebrew/bin/yt-dlp',
-    path.join(os.homedir(), '.local/bin/yt-dlp'),
-  ]
-
-  for (const ytdlpPath of possiblePaths) {
+  const downloadedPath = getYtDlpPath()
+  if (fs.existsSync(downloadedPath)) {
     try {
-      await execFileAsync(ytdlpPath, ['--version'])
-      return ytdlpPath
+      await execFileAsync(downloadedPath, ['--version'])
+      return downloadedPath
     } catch {
-      // Try next path
+      // Downloaded binary not working
+      return null
     }
   }
-
   return null
 }
 

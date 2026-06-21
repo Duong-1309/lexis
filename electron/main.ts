@@ -15,6 +15,7 @@ import { parseEPUBChapters, loadEPUBChapter } from './services/parsers/epub'
 import { parsePlainText } from './services/parsers/text'
 import { fetchWebArticle } from './services/parsers/web'
 import { checkYtDlpAvailable, getYouTubeVideoInfo, downloadYouTubeSubtitle } from './services/parsers/youtube'
+import { isYtDlpDownloaded, downloadYtDlp, type DownloadProgress } from './services/ytdlp-download'
 import { calculateNextReview } from './services/srs'
 import { getSettings, setSettings } from './services/settings'
 import { getDailyMissions, claimMissionReward } from './services/missions'
@@ -409,6 +410,18 @@ function setupIPCHandlers(): void {
       )
 
       return source as MediaSource
+    })
+  })
+
+  ipcMain.handle('youtube:is-downloaded', () =>
+    wrapResult(() => isYtDlpDownloaded()),
+  )
+
+  ipcMain.handle('youtube:download-ytdlp', async (event) => {
+    return wrapResult(async () => {
+      await downloadYtDlp((progress: DownloadProgress) => {
+        event.sender.send('youtube:download-progress', progress)
+      })
     })
   })
 
