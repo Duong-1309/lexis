@@ -65,10 +65,9 @@ mac:
     - ko
     - fr
     - es
-  hardenedRuntime: true
+  identity: null
+  hardenedRuntime: false
   gatekeeperAssess: false
-  entitlements: buildResources/entitlements.mac.plist
-  entitlementsInherit: buildResources/entitlements.mac.plist
 
 dmg:
   contents:
