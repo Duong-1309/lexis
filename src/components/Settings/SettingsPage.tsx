@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
-import type { AIProvider, CardTemplate, NativeLanguage, UserSettings, UpdateInfo, UpdateProgress } from '../../types'
+import type { AIProvider, CardTemplate, NativeLanguage, UserSettings, UpdateInfo } from '../../types'
 import { COMMON_TIME_ZONES, DEFAULT_TIME_ZONE } from '../../utils/time'
 import { DictionaryManager } from './DictionaryManager'
 
-type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error' | 'up-to-date'
+type UpdateStatus = 'idle' | 'checking' | 'available' | 'error' | 'up-to-date'
 
 interface SettingsPageProps {
   onClose: () => void
@@ -132,7 +132,6 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
   const [appVersion, setAppVersion] = useState<string>('')
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>('idle')
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null)
-  const [updateProgress, setUpdateProgress] = useState<UpdateProgress | null>(null)
   const [updateError, setUpdateError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -151,14 +150,6 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
     })
     window.lexis.updater.onNotAvailable(() => {
       setUpdateStatus('up-to-date')
-    })
-    window.lexis.updater.onProgress((progress) => {
-      setUpdateStatus('downloading')
-      setUpdateProgress(progress)
-    })
-    window.lexis.updater.onDownloaded((info) => {
-      setUpdateStatus('ready')
-      setUpdateInfo(info)
     })
     window.lexis.updater.onError((error) => {
       setUpdateStatus('error')
@@ -195,13 +186,10 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
     await window.lexis.updater.checkForUpdates()
   }
 
-  const handleDownloadUpdate = async () => {
-    setUpdateStatus('downloading')
-    await window.lexis.updater.downloadUpdate()
-  }
-
-  const handleInstallUpdate = () => {
-    window.lexis.updater.installUpdate()
+  const handleOpenDownload = () => {
+    if (updateInfo?.version) {
+      window.lexis.updater.openDownload(updateInfo.version)
+    }
   }
 
   const handleSave = async () => {
@@ -315,23 +303,10 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
                   )}
                   {updateStatus === 'available' && (
                     <button
-                      onClick={handleDownloadUpdate}
+                      onClick={handleOpenDownload}
                       className="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
                     >
                       Download v{updateInfo?.version}
-                    </button>
-                  )}
-                  {updateStatus === 'downloading' && (
-                    <span className="text-xs text-blue-400">
-                      Downloading... {updateProgress ? `${updateProgress.percent.toFixed(0)}%` : ''}
-                    </span>
-                  )}
-                  {updateStatus === 'ready' && (
-                    <button
-                      onClick={handleInstallUpdate}
-                      className="px-3 py-1.5 text-xs bg-green-600 hover:bg-green-500 text-white rounded-lg transition-colors"
-                    >
-                      Restart to update
                     </button>
                   )}
                   {updateStatus === 'error' && (
@@ -345,7 +320,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
                 </div>
 
                 {/* Release Notes */}
-                {(updateStatus === 'available' || updateStatus === 'ready') && updateInfo?.releaseNotes && (
+                {updateStatus === 'available' && updateInfo?.releaseNotes && (
                   <div className="mb-3 p-3 bg-gray-900/50 border border-white/5 rounded-lg max-h-40 overflow-y-auto">
                     <p className="text-xs font-medium text-gray-400 mb-1.5">What's new in v{updateInfo.version}:</p>
                     <div className="text-xs text-gray-300 release-notes">
@@ -363,15 +338,6 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
                         ))
                       )}
                     </div>
-                  </div>
-                )}
-
-                {updateStatus === 'downloading' && updateProgress && (
-                  <div className="w-full bg-gray-700 rounded-full h-1.5 mb-2">
-                    <div
-                      className="bg-blue-500 h-1.5 rounded-full transition-all"
-                      style={{ width: `${updateProgress.percent}%` }}
-                    />
                   </div>
                 )}
 

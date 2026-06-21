@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, protocol, Notification } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, protocol, Notification, shell } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import windowStateKeeper from 'electron-window-state'
@@ -684,15 +684,10 @@ function setupIPCHandlers(): void {
     }),
   )
 
-  ipcMain.handle('updater:download', () =>
+  ipcMain.handle('updater:open-download', (_event, version: string) =>
     wrapResult(async () => {
-      await autoUpdater.downloadUpdate()
-    }),
-  )
-
-  ipcMain.handle('updater:install', () =>
-    wrapResult(() => {
-      autoUpdater.quitAndInstall(false, true)
+      const url = `https://github.com/Duong-1309/lexis/releases/tag/v${version}`
+      await shell.openExternal(url)
     }),
   )
 }

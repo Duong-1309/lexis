@@ -442,13 +442,6 @@ export interface UpdateInfo {
   releaseNotes?: string | { version: string; note: string }[]
 }
 
-export interface UpdateProgress {
-  percent: number
-  bytesPerSecond: number
-  transferred: number
-  total: number
-}
-
 export type AIProvider = 'anthropic' | 'openai'
 
 export interface SchedulingSettings {
@@ -621,13 +614,10 @@ export interface SettingsAPI {
 export interface UpdaterAPI {
   getVersion(): Promise<IPCResult<string>>
   checkForUpdates(): Promise<IPCResult<UpdateInfo | null>>
-  downloadUpdate(): Promise<IPCResult<void>>
-  installUpdate(): Promise<IPCResult<void>>
+  openDownload(version: string): Promise<IPCResult<void>>
   onChecking(callback: () => void): void
   onAvailable(callback: (info: UpdateInfo) => void): void
   onNotAvailable(callback: (info: { version: string }) => void): void
-  onProgress(callback: (progress: UpdateProgress) => void): void
-  onDownloaded(callback: (info: UpdateInfo) => void): void
   onError(callback: (error: string) => void): void
   removeListeners(): void
 }

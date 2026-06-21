@@ -1,6 +1,6 @@
 {
   "name": "lexis",
-  "version": "1.0.1",
+  "version": "1.0.0",
   "description": "Sentence mining and Anki flashcard creation desktop app",
   "repository": {
     "type": "git",
@@ -15,7 +15,7 @@
     "dist": "npm run build && electron-builder",
     "dist:win": "npm run build && electron-builder --win",
     "dist:mac": "npm run build && electron-builder --mac && npm run postdist:mac",
-    "postdist:mac": "node -e \"const v='v'+require('./package.json').version; const fs=require('fs'); const p=require('path'); const dir='release/'+v; fs.mkdirSync(dir,{recursive:true}); fs.readdirSync('release').filter(f=>f.startsWith('Lexis-')||f==='latest-mac.yml').forEach(f=>fs.renameSync('release/'+f,dir+'/'+f)); console.log('Moved to',dir)\"",
+    "postdist:mac": "node -e \"const v='v'+require('./package.json').version; const fs=require('fs'); const dir='release/'+v; fs.mkdirSync(dir,{recursive:true}); fs.readdirSync('release').filter(f=>f.endsWith('.dmg')||f.endsWith('.blockmap')||f==='latest-mac.yml').forEach(f=>fs.renameSync('release/'+f,dir+'/'+f)); console.log('Moved to',dir)\"",
     "dist:linux": "npm run build && electron-builder --linux",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

@@ -1157,24 +1157,26 @@ sprint is about habit formation and user experience flow, not monetization.
 
 - Reorganized Settings page from flat layout to sidebar navigation.
 - Four tabs: General, AI & API, Review, Reader.
-- Fixed modal size (680x520px) for consistency.
+- Fixed modal size (720x580px) for consistency.
 - Reader tab includes live font preview.
 
-#### Task 10.12 — Auto-Update System ✅
+#### Task 10.12 — Update System ✅
 
-- **electron-builder publish config**: Enabled GitHub Releases as update provider.
-- **Auto-updater initialization**: `electron-updater` checks for updates on startup (10s delay) and every 4 hours.
-- **IPC handlers**: `updater:get-version`, `updater:check`, `updater:download`, `updater:install`.
-- **Preload API**: `window.lexis.updater` with methods and event listeners.
+- **electron-builder publish config**: GitHub Releases with explicit `owner`/`repo` fields.
+- **Update check**: `electron-updater` checks for updates on startup (10s delay) and every 4 hours.
+- **IPC handlers**: `updater:get-version`, `updater:check`, `updater:open-download`.
+- **Preload API**: `window.lexis.updater` with simplified methods.
 - **Settings UI**: "About & Updates" section in General tab showing:
   - App version
   - Check for updates button
-  - Download/Install buttons when update available
-  - Progress bar during download
-  - Release notes/changelog display
+  - Download button (opens browser to GitHub release page)
+  - Release notes/changelog display (rendered HTML)
   - Toggle for automatic update checks
-- **Flow**: Check → Download (differential via blockmap) → Restart to install.
-- **Release process**: Tag + push to GitHub → Create Release → Upload artifacts → Users auto-notified.
+- **Flow**: Check → Show "Download vX.X.X" button → Opens browser → User downloads DMG manually.
+- **Why manual download?**: macOS Squirrel.Mac requires code-signed apps for auto-update. Unsigned apps get "code signature did not pass validation" error.
+- **Future**: Apple Developer code signing ($99/year) would enable true auto-update.
+- **Build config**: `identity: null`, `hardenedRuntime: false` for unsigned builds.
+- **Build script**: `postdist:mac` auto-organizes files into `release/vX.X.X/` folders.
 
 #### Task 10.13 — First Public Release v1.0.0 ✅
 
@@ -1222,4 +1224,4 @@ sprint is about habit formation and user experience flow, not monetization.
 
 ---
 
-End of Implementation Plan v2.2 (Sprint 10 complete, v1.0.0 released)
+End of Implementation Plan v2.3 (Sprint 10 complete, v1.0.0 released, manual update flow)

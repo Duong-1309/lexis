@@ -183,8 +183,7 @@ const lexisAPI: LexisAPI = {
   updater: {
     getVersion: () => ipcRenderer.invoke('updater:get-version'),
     checkForUpdates: () => ipcRenderer.invoke('updater:check'),
-    downloadUpdate: () => ipcRenderer.invoke('updater:download'),
-    installUpdate: () => ipcRenderer.invoke('updater:install'),
+    openDownload: (version: string) => ipcRenderer.invoke('updater:open-download', version),
     onChecking: (callback) => {
       ipcRenderer.on('updater:checking', () => callback())
     },
@@ -194,12 +193,6 @@ const lexisAPI: LexisAPI = {
     onNotAvailable: (callback) => {
       ipcRenderer.on('updater:not-available', (_event, info: { version: string }) => callback(info))
     },
-    onProgress: (callback) => {
-      ipcRenderer.on('updater:progress', (_event, progress: UpdateProgress) => callback(progress))
-    },
-    onDownloaded: (callback) => {
-      ipcRenderer.on('updater:downloaded', (_event, info: UpdateInfo) => callback(info))
-    },
     onError: (callback) => {
       ipcRenderer.on('updater:error', (_event, error: string) => callback(error))
     },
@@ -207,8 +200,6 @@ const lexisAPI: LexisAPI = {
       ipcRenderer.removeAllListeners('updater:checking')
       ipcRenderer.removeAllListeners('updater:available')
       ipcRenderer.removeAllListeners('updater:not-available')
-      ipcRenderer.removeAllListeners('updater:progress')
-      ipcRenderer.removeAllListeners('updater:downloaded')
       ipcRenderer.removeAllListeners('updater:error')
     },
   },
