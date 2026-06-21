@@ -3,6 +3,13 @@ import { useEffect, useState } from 'react'
 export function StatusBar() {
   const [totalDue, setTotalDue] = useState(0)
   const [coinBalance, setCoinBalance] = useState(0)
+  const [appVersion, setAppVersion] = useState('')
+
+  useEffect(() => {
+    window.lexis.updater.getVersion().then((r) => {
+      if (r.data) setAppVersion(r.data)
+    })
+  }, [])
 
   useEffect(() => {
     const load = async () => {
@@ -39,7 +46,7 @@ export function StatusBar() {
         <span className="text-yellow-400 font-medium">{coinBalance.toLocaleString()}</span>
       </div>
       <div className="ml-auto" />
-      <span>Lexis v1.0</span>
+      <span>Lexis {appVersion ? `v${appVersion}` : ''}</span>
     </div>
   )
 }
