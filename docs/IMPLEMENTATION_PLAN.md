@@ -1171,9 +1171,22 @@ sprint is about habit formation and user experience flow, not monetization.
   - Check for updates button
   - Download/Install buttons when update available
   - Progress bar during download
+  - Release notes/changelog display
   - Toggle for automatic update checks
 - **Flow**: Check → Download (differential via blockmap) → Restart to install.
 - **Release process**: Tag + push to GitHub → Create Release → Upload artifacts → Users auto-notified.
+
+#### Task 10.13 — First Public Release v1.0.0 ✅
+
+- **GitHub Repository**: https://github.com/Duong-1309/lexis
+- **License**: GPL-3.0
+- **README**: Features, installation, development setup, tech stack
+- **Release v1.0.0**: Initial release with all Sprint 1-10 features
+- **Artifacts uploaded**:
+  - `Lexis-1.0.0-arm64.dmg` (143MB) — Apple Silicon
+  - `Lexis-1.0.0-arm64.dmg.blockmap` — Differential updates
+  - `latest-mac.yml` — Auto-updater metadata
+- **macOS unsigned app workaround**: `xattr -cr /Applications/Lexis.app`
 
 ### Sprint 10 Acceptance Tests
 
@@ -1193,6 +1206,8 @@ sprint is about habit formation and user experience flow, not monetization.
 - [x] Dictionary build-from-source works for JMdict and CEDICT
 - [x] Settings UI uses sidebar navigation
 - [x] Auto-update UI shows version and update status in Settings
+- [x] Release notes displayed when update available
+- [x] First release v1.0.0 published on GitHub
 
 ---
 
@@ -1207,4 +1222,4 @@ sprint is about habit formation and user experience flow, not monetization.
 
 ---
 
-End of Implementation Plan v2.1 (Sprint 10 complete)
+End of Implementation Plan v2.2 (Sprint 10 complete, v1.0.0 released)
