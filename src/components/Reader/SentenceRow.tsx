@@ -93,11 +93,15 @@ export function SentenceRow({
         <span
           key={`token-${i}`}
           data-word={minedKey ?? undefined}
-          className={`rounded px-px transition-colors ${
+          className={`transition-colors ${
             token.surface === selectedWord
-              ? 'bg-yellow-400/30 text-yellow-200'
+              ? 'bg-yellow-400/30 text-yellow-200 rounded-sm'
               : ''
           } ${minedKey ? 'epub-mined-word' : ''}`}
+          style={{
+            boxDecorationBreak: 'clone',
+            WebkitBoxDecorationBreak: 'clone',
+          }}
         >
           {token.surface}
         </span>,

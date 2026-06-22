@@ -1731,6 +1731,7 @@ Bug fixes + Import Library Management MVP (edit title, basic organization).
 - [ ] Loading states cho các async operations
 - [ ] Error messages rõ ràng hơn
 - [ ] Keyboard shortcuts documentation (Help modal)
+- [ ] **Search bar in Reader** — Tìm kiếm từ/cụm từ trong reading content (Ctrl+F)
 
 ### Deferred to v1.3.0+
 
@@ -1881,7 +1882,7 @@ See `algorithm.txt` for detailed algorithm explanations:
 
 ### Bug: Word click causes line height shift (Priority: High)
 
-**Reported:** 2026-06-21
+**Reported:** 2026-06-22
 
 **Symptom:** When clicking on a word in Reader, the line expands/shifts, causing adjacent words to move. This makes the user accidentally click on the wrong word.
 
@@ -1894,6 +1895,28 @@ See `algorithm.txt` for detailed algorithm explanations:
 - Use `box-shadow` for highlight effect
 - Ensure `display: inline` with no padding/margin changes on click
 - Or use `box-sizing: border-box` with fixed dimensions
+
+**Status:** Fixed (removed `px-px` padding from tokens) - needs verification
+
+---
+
+### Bug: Multi-line sentence selection not working (Priority: High)
+
+**Reported:** 2026-06-22
+
+**Symptom:** When selecting a sentence that spans 2 lines, the selection/tokenization doesn't work properly.
+
+**Likely cause:** 
+- Text selection detection issue with multi-line content
+- Tokenization may be failing for long sentences
+- Click event handling may have issues with wrapped text
+
+**Location:** `src/components/Reader/SentenceRow.tsx`
+
+**Fix approach:**
+- Check `window.getSelection()` handling for multi-line selections
+- Verify tokenization works for long sentences
+- Test click event propagation on wrapped content
 
 **Status:** Open
 

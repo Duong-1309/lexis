@@ -328,15 +328,24 @@ export function LookupPanel() {
     setTranslating(false)
     if (selectionOnly || !word || !language || results.length === 0 || !hasAiKey || nativeLang === 'en') return
 
-    const rawDef = results[0]?.senses[0]?.definitions.slice(0, 2).join('; ')
-    if (!rawDef) return
+    // Collect ALL definitions from ALL senses (max 6 senses, 2 defs each)
+    const allDefs: string[] = []
+    for (const entry of results.slice(0, 2)) {
+      for (const sense of entry.senses.slice(0, 4)) {
+        const pos = sense.partOfSpeech[0] ? `(${posLabel(sense.partOfSpeech[0])}) ` : ''
+        const defs = sense.definitions.slice(0, 2).map(stripHtml).join('; ')
+        if (defs) allDefs.push(`${pos}${defs}`)
+      }
+    }
+    if (allDefs.length === 0) return
 
-    const cleanDef = stripHtml(rawDef)
+    // Join with numbered list for clarity
+    const rawDef = allDefs.map((d, i) => `${i + 1}. ${d}`).join('\n')
     setTranslating(true)
     let cancelled = false
 
     window.lexis.ai
-      .translateDefinition(word, cleanDef, language, nativeLang)
+      .translateDefinition(word, rawDef, language, nativeLang)
       .then((r) => {
         if (cancelled) return
         if (r.data) {
@@ -353,12 +362,24 @@ export function LookupPanel() {
   const handleAddToDeck = () => {
     if (!word || !language || results.length === 0) return
     const entry = results[0]
-    const firstSense = entry?.senses[0]
-    const definition = firstSense?.definitions.slice(0, 2).join('; ') ?? ''
     const reading = entry?.readings[0]?.value
     const levelInfo = entry?.jlptLevel || entry?.hskLevel
       ? { jlpt: entry.jlptLevel, hsk: entry.hskLevel }
       : undefined
+
+    // Collect ALL definitions from ALL senses for the card
+    const allDefs: string[] = []
+    const allPos: string[] = []
+    for (const e of results.slice(0, 2)) {
+      for (const sense of e.senses.slice(0, 4)) {
+        const pos = sense.partOfSpeech[0] ? posLabel(sense.partOfSpeech[0]) : ''
+        if (pos && !allPos.includes(pos)) allPos.push(pos)
+        const defs = sense.definitions.slice(0, 2).map(stripHtml).join('; ')
+        if (defs) allDefs.push(pos ? `(${pos}) ${defs}` : defs)
+      }
+    }
+    const definition = allDefs.join('\n') || entry?.senses[0]?.definitions[0] || ''
+
     openBuilder(
       buildDraft({
         word,
@@ -366,7 +387,7 @@ export function LookupPanel() {
         definition,
         language,
         nativeDefinition: viDef ?? undefined,
-        partOfSpeech: firstSense?.partOfSpeech[0],
+        partOfSpeech: allPos.join(', ') || entry?.senses[0]?.partOfSpeech[0],
         levelInfo,
         audioWord: word,
         sourceSentence: selectedSentence?.content,

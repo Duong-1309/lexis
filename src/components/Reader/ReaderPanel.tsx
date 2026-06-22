@@ -32,7 +32,7 @@ interface ReaderPanelProps {
 }
 
 const CJK_RE = /[　-鿿가-힯]/
-const MAX_SELECTION_LENGTH = 120
+const MAX_SELECTION_LENGTH = 500
 
 function normalizeHighlightText(value: string): string {
   return value
@@ -784,14 +784,47 @@ export function ReaderPanel({
     const selectedText = selection?.toString().trim() ?? ''
     if (!selection || selection.isCollapsed || selectedText.length < 1 || selectedText.length >= MAX_SELECTION_LENGTH) return
 
-    const rowEl = (e.target as HTMLElement).closest('[data-sentence-id]') as HTMLElement | null
+    // Helper to find sentence element from a node (text node or element)
+    const findSentenceEl = (node: Node | null): HTMLElement | null => {
+      if (!node) return null
+      // If text node, get parent element
+      const el = node.nodeType === Node.TEXT_NODE ? node.parentElement : node as HTMLElement
+      return el?.closest('[data-sentence-id]') as HTMLElement | null
+    }
+
+    // Try to find sentence from selection range (handles multi-line selection)
+    let sentence: Sentence | undefined
+    const range = selection.getRangeAt(0)
+
+    // Try multiple sources: start of selection, end of selection, common ancestor, mouseup target
+    const startEl = findSentenceEl(range.startContainer)
+    const endEl = findSentenceEl(range.endContainer)
+    const ancestorEl = findSentenceEl(range.commonAncestorContainer)
+    const targetEl = (e.target as HTMLElement).closest('[data-sentence-id]') as HTMLElement | null
+
+    const rowEl = startEl ?? endEl ?? ancestorEl ?? targetEl
     const sentenceId = rowEl?.dataset.sentenceId
-    const sentence = sentences.find((item) => item.id === sentenceId)
+
+    if (sentenceId) {
+      sentence = sentences.find((item) => String(item.id) === sentenceId)
+    }
+
     if (sentence) onSelectSentence(sentence)
+
+    // Debug: log selection details
+    console.log('[Selection Debug]', {
+      selectedText,
+      sentenceId,
+      foundFrom: startEl ? 'start' : endEl ? 'end' : ancestorEl ? 'ancestor' : targetEl ? 'target' : 'none',
+      sentenceFound: !!sentence,
+      sentenceContent: sentence?.content?.slice(0, 50),
+      totalSentences: sentences.length,
+    })
 
     debugLog('reader', 'subtitle-selection', {
       selectedText,
       sentenceId,
+      foundFrom: startEl ? 'start' : endEl ? 'end' : ancestorEl ? 'ancestor' : targetEl ? 'target' : 'none',
       sentence: sentence?.content,
       sourceId: sentence?.sourceId,
     })

@@ -127,7 +127,10 @@ export class AIService {
     if (!this.hasApiKey()) throw new Error('No API key configured')
     const langName = LANG_NAMES[targetLang] ?? targetLang
     const nativeName = nativeLang === 'vi' ? 'Vietnamese' : 'English'
-    const prompt = `Translate this ${langName} dictionary definition to ${nativeName}. Word: "${word}". Definition: "${definition}". Return only the translation, concise, no explanation.`
+    const isMultiSense = definition.includes('\n') || /^\d+\./.test(definition)
+    const prompt = isMultiSense
+      ? `Translate these ${langName} dictionary definitions to ${nativeName}. Word: "${word}".\n\n${definition}\n\nKeep the numbered format. Translate each definition concisely. No explanations.`
+      : `Translate this ${langName} dictionary definition to ${nativeName}. Word: "${word}". Definition: "${definition}". Return only the translation, concise, no explanation.`
 
     if (this.provider === 'anthropic') {
       const response = await this.anthropicClient!.messages.create({

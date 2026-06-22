@@ -83,6 +83,7 @@ export function ReviewSession({ deckId, deckName, onEnd }: ReviewSessionProps) {
 
   const currentCard = cards[0] ?? null
   const remaining = cards.length
+  const learningCount = cards.filter(c => (c.stepIndex ?? 0) < 3).length
   const showAudioButton = Boolean(
     currentCard?.word &&
     currentCard?.language &&
@@ -172,7 +173,7 @@ export function ReviewSession({ deckId, deckName, onEnd }: ReviewSessionProps) {
 
   if (loading) {
     return (
-      <SessionShell deckName={deckName} remaining={0} onEnd={onEnd}>
+      <SessionShell deckName={deckName} reviewed={0} remaining={0} learning={0} onEnd={onEnd}>
         <div className="flex items-center justify-center h-full text-gray-500 text-sm">
           Loading cards...
         </div>
@@ -182,7 +183,7 @@ export function ReviewSession({ deckId, deckName, onEnd }: ReviewSessionProps) {
 
   if (cards.length === 0) {
     return (
-      <SessionShell deckName={deckName} remaining={0} onEnd={onEnd}>
+      <SessionShell deckName={deckName} reviewed={0} remaining={0} learning={0} onEnd={onEnd}>
         <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-500">
           <p className="text-sm">No cards due in this deck.</p>
           <button onClick={onEnd} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
@@ -200,7 +201,7 @@ export function ReviewSession({ deckId, deckName, onEnd }: ReviewSessionProps) {
   if (phase === 'waiting') {
     const seconds = currentCard ? Math.max(1, Math.ceil((dueTimeMs(currentCard) - Date.now()) / 1000)) : 0
     return (
-      <SessionShell deckName={deckName} remaining={remaining} onEnd={onEnd}>
+      <SessionShell deckName={deckName} reviewed={stats.total} remaining={remaining} learning={learningCount} onEnd={onEnd}>
         <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-500">
           <p className="text-sm">Next learning card in {seconds}s.</p>
           <button onClick={onEnd} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
@@ -212,7 +213,7 @@ export function ReviewSession({ deckId, deckName, onEnd }: ReviewSessionProps) {
   }
 
   return (
-    <SessionShell deckName={deckName} remaining={remaining} onEnd={onEnd}>
+    <SessionShell deckName={deckName} reviewed={stats.total} remaining={remaining} learning={learningCount} onEnd={onEnd}>
       <div className="flex h-full min-h-0 flex-col items-center justify-center gap-4 px-6 py-6">
         {/* Card */}
         <div
@@ -313,12 +314,16 @@ export function ReviewSession({ deckId, deckName, onEnd }: ReviewSessionProps) {
 
 function SessionShell({
   deckName,
+  reviewed,
   remaining,
+  learning,
   onEnd,
   children,
 }: {
   deckName: string
+  reviewed: number
   remaining: number
+  learning: number
   onEnd: () => void
   children: React.ReactNode
 }) {
@@ -328,9 +333,14 @@ function SessionShell({
       <div className="flex items-center justify-between pl-20 pr-6 py-4 border-b border-white/5 bg-gray-900">
         <span className="text-sm font-medium text-gray-300">{deckName}</span>
         <div className="flex items-center gap-4">
+          {reviewed > 0 && (
+            <span className="text-xs text-green-500">
+              {reviewed} done
+            </span>
+          )}
           {remaining > 0 && (
             <span className="text-xs text-gray-500">
-              {remaining} remaining
+              {remaining} left{learning > 0 ? ` (${learning} learning)` : ''}
             </span>
           )}
           <button
