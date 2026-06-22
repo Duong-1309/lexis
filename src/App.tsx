@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { ReaderPanel } from './components/Reader/ReaderPanel'
 import { LookupPanel } from './components/Lookup/LookupPanel'
 import { CardBuilder } from './components/CardBuilder/CardBuilder'
@@ -100,6 +100,152 @@ function mediaCountLabel(source: MediaSource): string {
   return 'lines'
 }
 
+function formatSourceTooltip(source: MediaSource): string {
+  const lines: string[] = [source.title]
+
+  if (source.wordCount) {
+    lines.push(`${source.wordCount.toLocaleString()} words`)
+  }
+
+  if (source.sourceUrl) {
+    lines.push(source.sourceUrl)
+  }
+
+  if (source.addedAt) {
+    const date = new Date(source.addedAt)
+    lines.push(`Added: ${date.toLocaleDateString()}`)
+  }
+
+  if (source.lastOpened) {
+    const date = new Date(source.lastOpened)
+    lines.push(`Last opened: ${date.toLocaleDateString()}`)
+  }
+
+  return lines.join('\n')
+}
+
+function ConfirmDeleteDialog({
+  source,
+  onConfirm,
+  onCancel,
+}: {
+  source: MediaSource
+  onConfirm: () => void
+  onCancel: () => void
+}) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel()
+      if (e.key === 'Enter') onConfirm()
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [onConfirm, onCancel])
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+      <div className="bg-gray-800 border border-white/10 rounded-xl shadow-2xl w-full max-w-sm mx-4 p-5">
+        <h3 className="text-base font-semibold text-gray-100 mb-2">Delete source?</h3>
+        <p className="text-sm text-gray-400 mb-1">
+          <span className="text-gray-200 font-medium">{source.title}</span>
+        </p>
+        <p className="text-xs text-gray-500 mb-5">
+          This will remove the source and reading progress. Mined cards will not be affected.
+        </p>
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onCancel}
+            className="px-4 py-2 text-sm text-gray-300 hover:text-gray-100 hover:bg-white/10 rounded-lg transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-4 py-2 text-sm bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ContentHeader({
+  source,
+  isEditing,
+  editingTitle,
+  onStartRename,
+  onFinishRename,
+  onCancelRename,
+  onEditingTitleChange,
+  onDelete,
+}: {
+  source: MediaSource
+  isEditing: boolean
+  editingTitle: string
+  onStartRename: () => void
+  onFinishRename: () => void
+  onCancelRename: () => void
+  onEditingTitleChange: (title: string) => void
+  onDelete: () => void
+}) {
+  const label = mediaTypeLabel(source)
+
+  return (
+    <div className="shrink-0 flex items-center gap-3 px-4 py-2 border-b border-white/5 bg-gray-900/50">
+      {isEditing ? (
+        <input
+          type="text"
+          value={editingTitle}
+          onChange={(e) => onEditingTitleChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') onFinishRename()
+            if (e.key === 'Escape') onCancelRename()
+          }}
+          onBlur={onFinishRename}
+          autoFocus
+          className="flex-1 px-2 py-1 text-sm bg-gray-800 border border-blue-500 rounded text-gray-100 outline-none"
+        />
+      ) : (
+        <>
+          <h1 className="flex-1 min-w-0 text-sm font-medium text-gray-200 truncate">
+            {source.title}
+          </h1>
+          {label && (
+            <span className="shrink-0 text-[10px] bg-purple-600/30 text-purple-300 px-1.5 py-0.5 rounded">
+              {label}
+            </span>
+          )}
+          <span className="text-xs text-gray-500">
+            {source.language.toUpperCase()}
+          </span>
+          <div className="flex items-center gap-1 ml-2">
+            <button
+              onClick={onStartRename}
+              className="p-1.5 rounded hover:bg-white/10 text-gray-500 hover:text-gray-300 transition-colors"
+              title="Rename"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+            </button>
+            <button
+              onClick={onDelete}
+              className="p-1.5 rounded hover:bg-red-600/20 text-gray-500 hover:text-red-400 transition-colors"
+              title="Delete"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 function Sidebar({
   sources,
   currentSourceId,
@@ -107,7 +253,6 @@ function Sidebar({
   progressMap,
   onImport,
   onSelect,
-  onDelete,
   onReview,
   onStats,
   onDecks,
@@ -120,13 +265,29 @@ function Sidebar({
   progressMap: Map<number, ReadingProgress>
   onImport: () => void
   onSelect: (source: MediaSource) => void
-  onDelete: (source: MediaSource) => void
   onReview: () => void
   onStats: () => void
   onDecks: () => void
   onDrills: () => void
   onSettings: () => void
 }) {
+  const [hoveredSource, setHoveredSource] = useState<{ source: MediaSource; y: number } | null>(null)
+  const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const handleMouseEnter = (source: MediaSource, e: React.MouseEvent) => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current)
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    const y = rect.top
+    hoverTimeoutRef.current = setTimeout(() => {
+      setHoveredSource({ source, y })
+    }, 300)
+  }
+
+  const handleMouseLeave = () => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current)
+    setHoveredSource(null)
+  }
+
   return (
     <div className="flex flex-col w-52 shrink-0 bg-gray-900 border-r border-white/5">
       <div className="p-3 space-y-2 border-b border-white/5">
@@ -171,58 +332,42 @@ function Sidebar({
             const percent = getReadingPercent(source, progress)
             const isSelected = currentSourceId === source.id
             return (
-              <div
+              <button
                 key={source.id}
-                className={`group relative px-4 py-2 transition-colors hover:bg-white/5 ${
+                onClick={() => onSelect(source)}
+                onMouseEnter={(e) => handleMouseEnter(source, e)}
+                onMouseLeave={handleMouseLeave}
+                className={`w-full text-left px-3 py-2 transition-colors hover:bg-white/5 ${
                   isSelected ? 'bg-blue-600/10' : ''
                 }`}
               >
-                <button
-                  onClick={() => onSelect(source)}
-                  className={`w-full text-left text-sm ${
-                    isSelected ? 'text-blue-400' : 'text-gray-300'
-                  }`}
-                >
-                  <div className="flex items-center gap-1.5">
-                    <span className="truncate font-medium">{source.title}</span>
-                    {label && (
-                      <span className="shrink-0 text-[9px] bg-purple-600/30 text-purple-300 px-1 rounded">{label}</span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span className="text-xs text-gray-500">
-                      {source.language.toUpperCase()} · {source.sentenceCount ?? 0} {mediaCountLabel(source)}
-                    </span>
-                    {percent > 0 && (
-                      <span className={`text-[10px] ${percent >= 100 ? 'text-green-400' : 'text-blue-400'}`}>
-                        {percent}%
-                      </span>
-                    )}
-                  </div>
-                  {/* Progress bar */}
-                  {percent > 0 && (
-                    <div className="mt-1.5 h-0.5 bg-gray-700 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full transition-all ${percent >= 100 ? 'bg-green-500' : 'bg-blue-500'}`}
-                        style={{ width: `${percent}%` }}
-                      />
-                    </div>
+                <div className="flex items-center gap-1.5">
+                  <span className={`truncate font-medium text-sm ${isSelected ? 'text-blue-400' : 'text-gray-300'}`}>
+                    {source.title}
+                  </span>
+                  {label && (
+                    <span className="shrink-0 text-[9px] bg-purple-600/30 text-purple-300 px-1 rounded">{label}</span>
                   )}
-                </button>
-                {/* Delete button - visible on hover */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onDelete(source)
-                  }}
-                  className="absolute right-2 top-2 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-red-600/20 text-gray-500 hover:text-red-400 transition-all"
-                  title="Delete"
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
+                </div>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="text-xs text-gray-500">
+                    {source.language.toUpperCase()} · {source.sentenceCount ?? 0} {mediaCountLabel(source)}
+                  </span>
+                  {percent > 0 && (
+                    <span className={`text-[10px] ${percent >= 100 ? 'text-green-400' : 'text-blue-400'}`}>
+                      {percent}%
+                    </span>
+                  )}
+                </div>
+                {percent > 0 && (
+                  <div className="mt-1.5 h-0.5 bg-gray-700 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full transition-all ${percent >= 100 ? 'bg-green-500' : 'bg-blue-500'}`}
+                      style={{ width: `${percent}%` }}
+                    />
+                  </div>
+                )}
+              </button>
             )
           })
         )}
@@ -273,6 +418,30 @@ function Sidebar({
           Settings
         </button>
       </div>
+
+      {/* Source tooltip */}
+      {hoveredSource && (
+        <div
+          className="fixed z-50 w-56 bg-gray-800 border border-white/10 rounded-lg shadow-xl p-2.5 pointer-events-none"
+          style={{ left: 216, top: Math.min(hoveredSource.y, window.innerHeight - 120) }}
+        >
+          <p className="text-xs font-medium text-gray-200 truncate mb-1">{hoveredSource.source.title}</p>
+          {hoveredSource.source.wordCount && (
+            <p className="text-[11px] text-gray-400">{hoveredSource.source.wordCount.toLocaleString()} words</p>
+          )}
+          {hoveredSource.source.sourceUrl && (
+            <p className="text-[11px] text-gray-500 truncate">{hoveredSource.source.sourceUrl}</p>
+          )}
+          <div className="flex gap-3 mt-1.5 text-[10px] text-gray-500">
+            {hoveredSource.source.addedAt && (
+              <span>Added: {new Date(hoveredSource.source.addedAt).toLocaleDateString()}</span>
+            )}
+            {hoveredSource.source.lastOpened && (
+              <span>Opened: {new Date(hoveredSource.source.lastOpened).toLocaleDateString()}</span>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -305,6 +474,9 @@ export default function App() {
   const openPatternBuilder = usePatternStore((state) => state.openBuilder)
 
   const [sources, setSources] = useState<MediaSource[]>([])
+  const [editingSourceId, setEditingSourceId] = useState<number | null>(null)
+  const [editingTitle, setEditingTitle] = useState('')
+  const [pendingDelete, setPendingDelete] = useState<MediaSource | null>(null)
   const [progressMap, setProgressMap] = useState<Map<number, ReadingProgress>>(new Map())
   const [initialPosition, setInitialPosition] = useState<number | undefined>(undefined)
   const [initialChapterId, setInitialChapterId] = useState<string | undefined>(undefined)
@@ -500,22 +672,54 @@ export default function App() {
     setPatternRefreshKey((value) => value + 1)
   }
 
-  const handleDeleteSource = async (source: MediaSource) => {
-    if (!confirm(`Delete "${source.title}"?\n\nThis will remove the source and its reading progress. Mined cards will not be affected.`)) {
-      return
-    }
-    const result = await window.lexis.media.delete(source.id)
+  const handleDeleteSource = (source: MediaSource) => {
+    setPendingDelete(source)
+  }
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return
+    const result = await window.lexis.media.delete(pendingDelete.id)
     if (result.error) {
       console.error('Failed to delete source:', result.error)
+      setPendingDelete(null)
       return
     }
-    // Clear current source if it was the deleted one
-    if (currentSource?.id === source.id) {
+    if (currentSource?.id === pendingDelete.id) {
       setSource(null as unknown as MediaSource)
       setSentences([])
       clearEPUB()
     }
+    setPendingDelete(null)
     await loadSources()
+  }
+
+  const handleStartRename = (source: MediaSource) => {
+    setEditingSourceId(source.id)
+    setEditingTitle(source.title)
+  }
+
+  const handleFinishRename = async () => {
+    if (!editingSourceId) return
+    const trimmed = editingTitle.trim()
+    const source = sources.find(s => s.id === editingSourceId)
+    if (!trimmed || trimmed === source?.title) {
+      setEditingSourceId(null)
+      setEditingTitle('')
+      return
+    }
+    const result = await window.lexis.media.rename(editingSourceId, trimmed)
+    if (result.error) {
+      console.error('Failed to rename source:', result.error)
+    } else {
+      await loadSources()
+    }
+    setEditingSourceId(null)
+    setEditingTitle('')
+  }
+
+  const handleCancelRename = () => {
+    setEditingSourceId(null)
+    setEditingTitle('')
   }
 
   const handleProgressChange = async (position: number, chapterId?: string) => {
@@ -568,7 +772,6 @@ export default function App() {
           progressMap={progressMap}
           onImport={() => setShowImport(true)}
           onSelect={handleSelectSource}
-          onDelete={handleDeleteSource}
           onReview={() => setShowDeckPicker(true)}
           onStats={() => setActiveView('stats')}
           onDecks={() => setActiveView('decks')}
@@ -576,7 +779,19 @@ export default function App() {
           onSettings={() => setShowSettings(true)}
         />
 
-        <main className="flex-1 min-w-0 overflow-hidden bg-gray-950">
+        <main className="flex-1 min-w-0 overflow-hidden bg-gray-950 flex flex-col">
+          {activeView === 'reader' && currentSource && (
+            <ContentHeader
+              source={currentSource}
+              isEditing={editingSourceId === currentSource.id}
+              editingTitle={editingTitle}
+              onStartRename={() => handleStartRename(currentSource)}
+              onFinishRename={handleFinishRename}
+              onCancelRename={handleCancelRename}
+              onEditingTitleChange={setEditingTitle}
+              onDelete={() => handleDeleteSource(currentSource)}
+            />
+          )}
           {activeView === 'reader' && (
             <ReaderPanel
               sentences={sentences}
@@ -651,6 +866,14 @@ export default function App() {
       <PatternBuilder decks={decks} onSaved={handlePatternSaved} />
 
       {showWelcome && <WelcomeModal onComplete={handleWelcomeComplete} />}
+
+      {pendingDelete && (
+        <ConfirmDeleteDialog
+          source={pendingDelete}
+          onConfirm={confirmDelete}
+          onCancel={() => setPendingDelete(null)}
+        />
+      )}
     </div>
   )
 }

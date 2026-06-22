@@ -32,7 +32,7 @@ const RATING_COLORS: Record<ReviewRating, string> = {
 }
 
 function estimateInterval(card: Card, rating: ReviewRating): string {
-  const isLearning = card.cardState !== 'review' && card.stepIndex < 3
+  const isLearning = card.cardState !== 'review' && card.stepIndex < 2
   if (rating === 1) return isLearning || card.cardState === 'review' ? '1m' : '1d'
   if (isLearning) {
     if (rating === 4) return '4d'
@@ -83,7 +83,7 @@ export function ReviewSession({ deckId, deckName, onEnd }: ReviewSessionProps) {
 
   const currentCard = cards[0] ?? null
   const remaining = cards.length
-  const learningCount = cards.filter(c => (c.stepIndex ?? 0) < 3).length
+  const learningCount = cards.filter(c => (c.stepIndex ?? 0) < 2).length
   const showAudioButton = Boolean(
     currentCard?.word &&
     currentCard?.language &&
@@ -132,7 +132,7 @@ export function ReviewSession({ deckId, deckName, onEnd }: ReviewSessionProps) {
       }))
 
       const nextCards = cards.slice(1)
-      if (result.data.stepIndex < 3) {
+      if (result.data.stepIndex < 2) {
         nextCards.push({ ...currentCard, ...result.data })
       }
       advanceQueue(nextCards)

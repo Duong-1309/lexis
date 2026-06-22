@@ -374,6 +374,10 @@ function setupIPCHandlers(): void {
     wrapResult(() => db.deleteMediaSource(sourceId)),
   )
 
+  ipcMain.handle('media:rename', (_event, sourceId: number, newTitle: string) =>
+    wrapResult(() => db.renameMediaSource(sourceId, newTitle)),
+  )
+
   ipcMain.handle('media:mark-opened', (_event, sourceId: number) =>
     wrapResult(() => db.markOpened(sourceId)),
   )

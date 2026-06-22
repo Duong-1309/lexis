@@ -12,6 +12,8 @@ interface SentenceRowProps {
   allCardsMap?: Map<string, MinedCardEntry>
   minedPattern?: RegExp | null
   isMinedSentence?: boolean
+  searchQuery?: string
+  isCurrentMatch?: boolean
 }
 
 function formatTime(ms?: number): string {
@@ -41,6 +43,24 @@ function splitWithMined(
   return parts
 }
 
+function highlightSearch(text: string, query: string, isCurrent: boolean): React.ReactNode {
+  if (!query) return text
+  const lower = text.toLowerCase()
+  const q = query.toLowerCase()
+  const idx = lower.indexOf(q)
+  if (idx === -1) return text
+  const markClass = isCurrent
+    ? 'bg-yellow-400 text-gray-900 font-medium rounded-sm px-0.5'
+    : 'bg-yellow-400/30 text-yellow-100 rounded-sm px-0.5'
+  return (
+    <>
+      {text.slice(0, idx)}
+      <mark className={markClass}>{text.slice(idx, idx + query.length)}</mark>
+      {text.slice(idx + query.length)}
+    </>
+  )
+}
+
 export function SentenceRow({
   sentence,
   language,
@@ -51,6 +71,8 @@ export function SentenceRow({
   allCardsMap,
   minedPattern,
   isMinedSentence = false,
+  searchQuery = '',
+  isCurrentMatch = false,
 }: SentenceRowProps) {
   const [tokens, setTokens] = useState<Token[]>([])
   const timestamp = formatTime(sentence.startTimeMs)
@@ -147,14 +169,14 @@ export function SentenceRow({
           splitWithMined(sentence.content, minedPattern).map((part, i) =>
             part.isMined ? (
               <span key={i} className="epub-mined-word" data-word={part.text.toLowerCase()}>
-                {part.text}
+                {searchQuery ? highlightSearch(part.text, searchQuery, isCurrentMatch) : part.text}
               </span>
             ) : (
-              <span key={i}>{part.text}</span>
+              <span key={i}>{searchQuery ? highlightSearch(part.text, searchQuery, isCurrentMatch) : part.text}</span>
             ),
           )
         ) : (
-          sentence.content
+          highlightSearch(sentence.content, searchQuery, isCurrentMatch)
         )}
       </p>
     </div>

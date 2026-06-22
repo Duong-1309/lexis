@@ -495,6 +495,7 @@ export interface MediaAPI {
   importUrl(url: string, language: Language): Promise<IPCResult<MediaSource>>
   list(): Promise<IPCResult<MediaSource[]>>
   delete(sourceId: number): Promise<IPCResult<void>>
+  rename(sourceId: number, newTitle: string): Promise<IPCResult<void>>
   markOpened(sourceId: number): Promise<IPCResult<void>>
 }
 

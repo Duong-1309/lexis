@@ -43,6 +43,7 @@ const lexisAPI: LexisAPI = {
     importUrl: (url, language) => ipcRenderer.invoke('media:import-url', url, language),
     list: () => ipcRenderer.invoke('media:list'),
     delete: (sourceId) => ipcRenderer.invoke('media:delete', sourceId),
+    rename: (sourceId, newTitle) => ipcRenderer.invoke('media:rename', sourceId, newTitle),
     markOpened: (sourceId) => ipcRenderer.invoke('media:mark-opened', sourceId),
   },
 

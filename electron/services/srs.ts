@@ -12,8 +12,10 @@ function nowPlusMinutes(minutes: number): string {
   return d.toISOString().slice(0, 19).replace('T', ' ')
 }
 
+// Learning steps: [1 minute, 10 minutes]
+// stepIndex 0 → 1min wait → stepIndex 1 → 10min wait → graduate (stepIndex 2)
 function learningDelayMinutes(stepIndex: number): number {
-  return stepIndex >= 2 ? 10 : 1
+  return stepIndex === 0 ? 1 : 10
 }
 
 // ±5% fuzz to prevent cards from piling up on the same day
@@ -29,8 +31,9 @@ export function calculateNextReview(card: Card, rating: ReviewRating): SRSResult
   let stepIndex = card.stepIndex ?? 0
   let dueDate: string | null = null
 
+  // Graduated: stepIndex >= 2 (2 learning steps: 1min, 10min)
   // Backward-compat: treat as graduated if cardState=review regardless of stepIndex
-  const isGraduated = card.cardState === 'review' || stepIndex >= 3
+  const isGraduated = card.cardState === 'review' || stepIndex >= 2
 
   if (isGraduated) {
     // SM-2 ease update for graduated cards
@@ -55,7 +58,7 @@ export function calculateNextReview(card: Card, rating: ReviewRating): SRSResult
       reps += 1
     }
   } else {
-    // Learning steps: stepIndex 0 → 1 → 2 → graduate (3)
+    // Learning steps: stepIndex 0 (1min) → stepIndex 1 (10min) → graduate (stepIndex 2)
     if (rating === 1) {
       // Again: restart learning
       stepIndex = 0
@@ -63,7 +66,7 @@ export function calculateNextReview(card: Card, rating: ReviewRating): SRSResult
       dueDate = nowPlusMinutes(learningDelayMinutes(stepIndex))
     } else if (rating === 4) {
       // Easy: graduate immediately
-      stepIndex = 3
+      stepIndex = 2
       interval = 4
       reps += 1
     } else if (rating === 2) {
@@ -73,7 +76,7 @@ export function calculateNextReview(card: Card, rating: ReviewRating): SRSResult
     } else {
       // Good: advance one step
       stepIndex += 1
-      if (stepIndex >= 3) {
+      if (stepIndex >= 2) {
         // Graduated
         interval = 1
         reps += 1
@@ -84,7 +87,7 @@ export function calculateNextReview(card: Card, rating: ReviewRating): SRSResult
     }
   }
 
-  const cardState: CardState = stepIndex >= 3
+  const cardState: CardState = stepIndex >= 2
     ? (interval >= 21 ? 'review' : 'learning')
     : 'learning'
 

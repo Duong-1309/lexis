@@ -272,6 +272,10 @@ function EPUBReader({
   initialPage,
   allCardsMap,
   minedPatterns,
+  searchOpen,
+  searchQuery,
+  onSearchOpenChange,
+  onSearchQueryChange,
 }: {
   chapters: EPUBChapter[]
   selectedChapterId: string | null
@@ -285,6 +289,10 @@ function EPUBReader({
   initialPage?: number
   allCardsMap?: Map<string, MinedCardEntry>
   minedPatterns?: Pattern[]
+  searchOpen?: boolean
+  searchQuery?: string
+  onSearchOpenChange?: (open: boolean) => void
+  onSearchQueryChange?: (query: string) => void
 }) {
   const [initialChapterLoaded, setInitialChapterLoaded] = useState(false)
 
@@ -312,6 +320,37 @@ function EPUBReader({
   const [initialPageRestored, setInitialPageRestored] = useState(false)
   const [tooltip, setTooltip] = useState<{ entry: MinedCardEntry; x: number; y: number } | null>(null)
   const [patternTooltip, setPatternTooltip] = useState<{ entry: MinedPatternEntry; x: number; y: number } | null>(null)
+  const [searchMatchIdx, setSearchMatchIdx] = useState(0)
+  const [searchMatchCount, setSearchMatchCount] = useState(0)
+
+  // Reset match index when query changes
+  useEffect(() => {
+    setSearchMatchIdx(0)
+  }, [searchQuery])
+
+  // Scroll to current match
+  useEffect(() => {
+    if (!searchQuery || searchMatchCount === 0 || !contentRef.current) return
+    const marks = contentRef.current.querySelectorAll('.epub-search-match')
+    marks.forEach((m, i) => {
+      if (i === searchMatchIdx) {
+        m.classList.add('epub-search-current')
+        m.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      } else {
+        m.classList.remove('epub-search-current')
+      }
+    })
+  }, [searchMatchIdx, searchMatchCount, searchQuery])
+
+  const goToNextMatch = () => {
+    if (searchMatchCount === 0) return
+    setSearchMatchIdx((prev) => (prev + 1) % searchMatchCount)
+  }
+
+  const goToPrevMatch = () => {
+    if (searchMatchCount === 0) return
+    setSearchMatchIdx((prev) => (prev - 1 + searchMatchCount) % searchMatchCount)
+  }
   const minedPatternMap = useMemo(() => {
     const map = new Map<string, MinedPatternEntry>()
     for (const pattern of minedPatterns ?? []) {
@@ -324,23 +363,70 @@ function EPUBReader({
   // Inject <span class="epub-mined-word"> around every word that's in a deck
   const processedHtml = useMemo(() => {
     if (!chapterHtml) return null
-    if ((!allCardsMap || allCardsMap.size === 0) && (!minedPatterns || minedPatterns.length === 0)) {
-      console.log('[Lexis] processedHtml: no mined words/sentences, skipping highlight injection')
-      return chapterHtml
+    let html = chapterHtml
+
+    // Inject mined highlights
+    if ((allCardsMap && allCardsMap.size > 0) || (minedPatterns && minedPatterns.length > 0)) {
+      try {
+        const words = new Set(allCardsMap?.keys() ?? [])
+        html = injectMinedHighlights(html, words, minedPatterns ?? [])
+      } catch (e) {
+        console.error('[Lexis] injectMinedHighlights error:', e)
+      }
     }
-    try {
-      const words = new Set(allCardsMap?.keys() ?? [])
-      console.log('[Lexis] processedHtml: injecting highlights', {
-        words: words.size,
-        sentences: minedPatterns?.length ?? 0,
-      })
-      const result = injectMinedHighlights(chapterHtml, words, minedPatterns ?? [])
-      return result
-    } catch (e) {
-      console.error('[Lexis] injectMinedHighlights error:', e)
-      return chapterHtml
+
+    // Inject search highlights
+    if (searchQuery && searchQuery.trim()) {
+      try {
+        const container = document.createElement('div')
+        container.innerHTML = html
+        const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT)
+        const textNodes: Text[] = []
+        let n: Node | null
+        while ((n = walker.nextNode())) textNodes.push(n as Text)
+
+        const q = searchQuery.toLowerCase()
+        for (const textNode of textNodes) {
+          const text = textNode.textContent ?? ''
+          const lower = text.toLowerCase()
+          const idx = lower.indexOf(q)
+          if (idx === -1) continue
+
+          const frag = document.createDocumentFragment()
+          let cursor = 0
+          let matchIdx = idx
+          while (matchIdx !== -1) {
+            if (matchIdx > cursor) frag.appendChild(document.createTextNode(text.slice(cursor, matchIdx)))
+            const mark = document.createElement('mark')
+            mark.className = 'epub-search-match'
+            mark.textContent = text.slice(matchIdx, matchIdx + searchQuery.length)
+            frag.appendChild(mark)
+            cursor = matchIdx + searchQuery.length
+            matchIdx = lower.indexOf(q, cursor)
+          }
+          if (cursor < text.length) frag.appendChild(document.createTextNode(text.slice(cursor)))
+          textNode.parentNode?.replaceChild(frag, textNode)
+        }
+        html = container.innerHTML
+      } catch (e) {
+        console.error('[Lexis] search highlight error:', e)
+      }
     }
-  }, [chapterHtml, allCardsMap, minedPatterns])
+
+    return html
+  }, [chapterHtml, allCardsMap, minedPatterns, searchQuery])
+
+  // Count search matches after HTML is processed
+  useEffect(() => {
+    if (!processedHtml || !searchQuery) {
+      setSearchMatchCount(0)
+      return
+    }
+    const tempDiv = document.createElement('div')
+    tempDiv.innerHTML = processedHtml
+    const count = tempDiv.querySelectorAll('.epub-search-match').length
+    setSearchMatchCount(count)
+  }, [processedHtml, searchQuery])
 
   const calcPages = useCallback(() => {
     const el = contentRef.current
@@ -515,8 +601,62 @@ function EPUBReader({
 
   const hasContent = processedHtml != null && !chapterLoading
 
+  const searchInputRef = useRef<HTMLInputElement>(null)
+
   return (
-    <div className="flex h-full">
+    <div className="flex flex-col h-full">
+      {/* Search bar */}
+      {searchOpen && (
+        <div className="shrink-0 flex items-center gap-2 px-3 py-2 bg-gray-900 border-b border-white/5">
+          <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={searchQuery ?? ''}
+            onChange={(e) => onSearchQueryChange?.(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.shiftKey ? goToPrevMatch() : goToNextMatch()
+              }
+              if (e.key === 'Escape') {
+                onSearchOpenChange?.(false)
+                onSearchQueryChange?.('')
+              }
+            }}
+            placeholder="Search in chapter..."
+            autoFocus
+            className="flex-1 bg-transparent text-sm text-gray-200 placeholder-gray-500 outline-none"
+          />
+          {searchQuery && (
+            <span className="text-xs text-gray-500">
+              {searchMatchCount > 0 ? `${searchMatchIdx + 1}/${searchMatchCount}` : 'No matches'}
+            </span>
+          )}
+          <button onClick={goToPrevMatch} disabled={searchMatchCount === 0} className="p-1 hover:bg-white/10 rounded disabled:opacity-30" title="Previous (Shift+Enter)">
+            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+            </svg>
+          </button>
+          <button onClick={goToNextMatch} disabled={searchMatchCount === 0} className="p-1 hover:bg-white/10 rounded disabled:opacity-30" title="Next (Enter)">
+            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          <button
+            onClick={() => { onSearchOpenChange?.(false); onSearchQueryChange?.('') }}
+            className="p-1 hover:bg-white/10 rounded"
+            title="Close (Escape)"
+          >
+            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
+
+      <div className="flex flex-1 min-h-0">
       {/* Chapter sidebar */}
       <div className="w-44 shrink-0 border-r border-white/5 flex flex-col overflow-hidden">
         <div className="px-3 py-2 border-b border-white/5 flex items-center justify-between">
@@ -618,6 +758,7 @@ function EPUBReader({
           </div>
         )}
       </div>
+      </div>
 
       {tooltip && (
         <MinedTooltip entry={tooltip.entry} x={tooltip.x} y={tooltip.y} />
@@ -625,6 +766,20 @@ function EPUBReader({
       {patternTooltip && (
         <PatternTooltip entry={patternTooltip.entry} x={patternTooltip.x} y={patternTooltip.y} />
       )}
+
+      <style>{`
+        .epub-search-match {
+          background-color: rgb(250 204 21 / 0.3);
+          color: rgb(254 249 195);
+          border-radius: 2px;
+          padding: 0 2px;
+        }
+        .epub-search-match.epub-search-current {
+          background-color: rgb(250 204 21);
+          color: rgb(23 23 23);
+          font-weight: 500;
+        }
+      `}</style>
     </div>
   )
 }
@@ -746,6 +901,62 @@ export function ReaderPanel({
   const [subtitleTooltip, setSubtitleTooltip] = useState<{ entry: MinedCardEntry; x: number; y: number } | null>(null)
   const [subtitlePatternTooltip, setSubtitlePatternTooltip] = useState<{ entry: MinedPatternEntry; x: number; y: number } | null>(null)
 
+  // Search state
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const searchInputRef = useRef<HTMLInputElement>(null)
+
+  const searchMatches = useMemo(() => {
+    if (!searchQuery.trim()) return []
+    const q = searchQuery.toLowerCase()
+    return sentences
+      .map((s, idx) => ({ sentence: s, idx }))
+      .filter(({ sentence }) => sentence.content.toLowerCase().includes(q))
+  }, [sentences, searchQuery])
+
+  const [currentMatchIdx, setCurrentMatchIdx] = useState(0)
+
+  // Reset match index when search changes
+  useEffect(() => {
+    setCurrentMatchIdx(0)
+  }, [searchQuery])
+
+  // Scroll to current match
+  useEffect(() => {
+    if (searchMatches.length === 0 || !containerRef.current) return
+    const match = searchMatches[currentMatchIdx]
+    if (!match) return
+    const el = containerRef.current.querySelector(`[data-sentence-idx="${match.idx}"]`)
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [currentMatchIdx, searchMatches])
+
+  // Ctrl+F to open search
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+        e.preventDefault()
+        setSearchOpen(true)
+        setTimeout(() => searchInputRef.current?.focus(), 0)
+      }
+      if (e.key === 'Escape' && searchOpen) {
+        setSearchOpen(false)
+        setSearchQuery('')
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [searchOpen])
+
+  const goToNextMatch = () => {
+    if (searchMatches.length === 0) return
+    setCurrentMatchIdx((prev) => (prev + 1) % searchMatches.length)
+  }
+
+  const goToPrevMatch = () => {
+    if (searchMatches.length === 0) return
+    setCurrentMatchIdx((prev) => (prev - 1 + searchMatches.length) % searchMatches.length)
+  }
+
   const handleSubtitleMouseOver = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const sentenceTarget = (e.target as HTMLElement).closest('.epub-mined-sentence') as HTMLElement | null
     if (sentenceTarget) {
@@ -811,16 +1022,6 @@ export function ReaderPanel({
 
     if (sentence) onSelectSentence(sentence)
 
-    // Debug: log selection details
-    console.log('[Selection Debug]', {
-      selectedText,
-      sentenceId,
-      foundFrom: startEl ? 'start' : endEl ? 'end' : ancestorEl ? 'ancestor' : targetEl ? 'target' : 'none',
-      sentenceFound: !!sentence,
-      sentenceContent: sentence?.content?.slice(0, 50),
-      totalSentences: sentences.length,
-    })
-
     debugLog('reader', 'subtitle-selection', {
       selectedText,
       sentenceId,
@@ -846,13 +1047,17 @@ export function ReaderPanel({
         initialPage={initialPosition}
         allCardsMap={allCardsMap}
         minedPatterns={minedPatterns}
+        searchOpen={searchOpen}
+        searchQuery={searchQuery}
+        onSearchOpenChange={setSearchOpen}
+        onSearchQueryChange={setSearchQuery}
       />
     )
   }
 
   if (sentences.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-gray-500 gap-3">
+      <div className="flex flex-col items-center justify-center flex-1 min-h-0 text-gray-500 gap-3">
         <svg className="w-12 h-12 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
             d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -862,40 +1067,95 @@ export function ReaderPanel({
     )
   }
 
+  const currentMatchSentenceId = searchMatches[currentMatchIdx]?.sentence.id
+
   return (
-    <div
-      ref={containerRef}
-      className="flex flex-col gap-0.5 py-2 overflow-y-auto h-full select-text"
-      onMouseOver={handleSubtitleMouseOver}
-      onMouseUp={handleSubtitleMouseUp}
-      onMouseLeave={() => { setSubtitleTooltip(null); setSubtitlePatternTooltip(null) }}
-      style={{ userSelect: 'text' }}
-    >
-      {sentences.map((sentence, idx) => {
-        const isSelected = selectedSentence?.id === sentence.id
-        const isMinedSentence = minedSentenceSet.has(normalizeHighlightText(sentence.content))
-        return (
-          <div key={sentence.id} ref={isSelected ? selectedRef : undefined} data-sentence-id={sentence.id} data-sentence-idx={idx}>
-            <SentenceRow
-              sentence={sentence}
-              language={language}
-              isSelected={isSelected}
-              isMined={minedWords.has(sentence.content) && !isMinedSentence}
-              selectedWord={selectedWord}
-              onClick={() => onSelectSentence(sentence)}
-              allCardsMap={allCardsMap}
-              minedPattern={minedPattern}
-              isMinedSentence={isMinedSentence}
-            />
-          </div>
-        )
-      })}
-      {subtitleTooltip && (
-        <MinedTooltip entry={subtitleTooltip.entry} x={subtitleTooltip.x} y={subtitleTooltip.y} />
+    <div className="flex flex-col flex-1 min-h-0">
+      {/* Search bar */}
+      {searchOpen && (
+        <div className="shrink-0 flex items-center gap-2 px-3 py-2 bg-gray-900 border-b border-white/5">
+          <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.shiftKey ? goToPrevMatch() : goToNextMatch()
+              }
+            }}
+            placeholder="Search in content..."
+            className="flex-1 bg-transparent text-sm text-gray-200 placeholder-gray-500 outline-none"
+          />
+          {searchQuery && (
+            <span className="text-xs text-gray-500">
+              {searchMatches.length > 0 ? `${currentMatchIdx + 1}/${searchMatches.length}` : 'No matches'}
+            </span>
+          )}
+          <button onClick={goToPrevMatch} disabled={searchMatches.length === 0} className="p-1 hover:bg-white/10 rounded disabled:opacity-30" title="Previous (Shift+Enter)">
+            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+            </svg>
+          </button>
+          <button onClick={goToNextMatch} disabled={searchMatches.length === 0} className="p-1 hover:bg-white/10 rounded disabled:opacity-30" title="Next (Enter)">
+            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          <button onClick={() => { setSearchOpen(false); setSearchQuery('') }} className="p-1 hover:bg-white/10 rounded" title="Close (Escape)">
+            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
       )}
-      {subtitlePatternTooltip && (
-        <PatternTooltip entry={subtitlePatternTooltip.entry} x={subtitlePatternTooltip.x} y={subtitlePatternTooltip.y} />
-      )}
+
+      {/* Sentence list */}
+      <div
+        ref={containerRef}
+        className="flex flex-col gap-0.5 py-2 overflow-y-auto flex-1 select-text"
+        onMouseOver={handleSubtitleMouseOver}
+        onMouseUp={handleSubtitleMouseUp}
+        onMouseLeave={() => { setSubtitleTooltip(null); setSubtitlePatternTooltip(null) }}
+        style={{ userSelect: 'text' }}
+      >
+        {sentences.map((sentence, idx) => {
+          const isSelected = selectedSentence?.id === sentence.id
+          const isMinedSentence = minedSentenceSet.has(normalizeHighlightText(sentence.content))
+          const isSearchMatch = currentMatchSentenceId === sentence.id
+          return (
+            <div
+              key={sentence.id}
+              ref={isSelected ? selectedRef : undefined}
+              data-sentence-id={sentence.id}
+              data-sentence-idx={idx}
+            >
+              <SentenceRow
+                sentence={sentence}
+                language={language}
+                isSelected={isSelected}
+                isMined={minedWords.has(sentence.content) && !isMinedSentence}
+                selectedWord={selectedWord}
+                onClick={() => onSelectSentence(sentence)}
+                allCardsMap={allCardsMap}
+                minedPattern={minedPattern}
+                isMinedSentence={isMinedSentence}
+                searchQuery={searchQuery}
+                isCurrentMatch={isSearchMatch}
+              />
+            </div>
+          )
+        })}
+        {subtitleTooltip && (
+          <MinedTooltip entry={subtitleTooltip.entry} x={subtitleTooltip.x} y={subtitleTooltip.y} />
+        )}
+        {subtitlePatternTooltip && (
+          <PatternTooltip entry={subtitlePatternTooltip.entry} x={subtitlePatternTooltip.x} y={subtitlePatternTooltip.y} />
+        )}
+      </div>
     </div>
   )
 }

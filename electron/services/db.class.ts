@@ -572,6 +572,11 @@ export class DatabaseService {
     this.db.prepare('DELETE FROM media_sources WHERE id = ?').run(id)
   }
 
+  renameMediaSource(id: number, newTitle: string): void {
+    this.assertInitialized()
+    this.db.prepare('UPDATE media_sources SET title = ? WHERE id = ?').run(newTitle, id)
+  }
+
   markOpened(id: number): void {
     this.assertInitialized()
     this.db
