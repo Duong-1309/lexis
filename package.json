@@ -1,6 +1,6 @@
 {
   "name": "lexis",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Sentence mining and Anki flashcard creation desktop app",
   "repository": {
     "type": "git",
