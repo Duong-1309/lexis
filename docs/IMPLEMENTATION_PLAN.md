@@ -1240,6 +1240,7 @@ sprint is about habit formation and user experience flow, not monetization.
 - [x] YouTube subtitles parsed correctly (VTT format) with timestamps
 - [x] Release v1.0.1 published with YouTube import feature
 - [x] Release v1.1.0: On-demand yt-dlp download (no terminal required)
+- [x] Release v1.2.0: Source management (edit/delete), search in Reader, SRS 2-step learning
 
 ---
 
@@ -1709,29 +1710,32 @@ Practice Settings
 
 ---
 
-## Next Release — v1.2.0 (Planned)
+## Release v1.2.0 ✅ DONE
 
 ### Release Goal
 
-Bug fixes + Import Library Management MVP (edit title, basic organization).
+Bug fixes + Import Library Management MVP + Search in Reader.
 
-### Priority 1 — Bug Fixes
+### What's New
 
-- [ ] **Word click line shift bug** — Click word không được làm lệch layout
-- [ ] Fast YouTube tab load (done in v1.1.0, verify)
+#### Source Management
+- [x] **Edit source title** — Click edit icon in content header, inline editing
+- [x] **Delete confirmation** — Custom modal with keyboard shortcuts (Enter/Escape)
+- [x] **Source details tooltip** — Hover sidebar items (300ms delay) to see word count, URL, dates
 
-### Priority 2 — Import Management MVP
+#### Search in Reader
+- [x] **Ctrl+F search** — Find text in subtitle/text view and EPUB chapters
+- [x] **Match navigation** — ▲▼ buttons or Enter/Shift+Enter to jump between matches
+- [x] **Highlight** — Current match bright yellow, other matches light yellow
 
-- [ ] **Edit source title** — Rename YouTube/Web/EPUB/Text imports
-- [ ] **Delete confirmation** — Better UX for delete action
-- [ ] **Source details tooltip** — Hover to see import date, type, progress
+#### SRS Improvements
+- [x] **Faster graduation** — Reduced learning steps from 3 to 2 (1min → 10min → graduate)
+- [x] **Better review display** — Shows learning card count in review session
 
-### Priority 3 — Polish
-
-- [ ] Loading states cho các async operations
-- [ ] Error messages rõ ràng hơn
-- [ ] Keyboard shortcuts documentation (Help modal)
-- [ ] **Search bar in Reader** — Tìm kiếm từ/cụm từ trong reading content (Ctrl+F)
+#### Bug Fixes
+- [x] **Word click line shift** — Fixed by removing px-px padding from tokens
+- [x] **Multi-line selection** — Fixed text selection spanning multiple lines
+- [x] **Dictionary all senses** — Now shows ALL meanings for translation and cards
 
 ### Deferred to v1.3.0+
 
@@ -1741,6 +1745,7 @@ Bug fixes + Import Library Management MVP (edit title, basic organization).
 - Bulk operations (Sprint 11.5)
 - Speech-to-Text (Sprint 12)
 - SRS Algorithm Improvements (Sprint 13)
+- Loading states, error messages, keyboard shortcuts help
 
 ---
 
@@ -1750,19 +1755,17 @@ Bug fixes + Import Library Management MVP (edit title, basic organization).
 
 Based on `algorithm.txt` recommendations and Anki/FSRS best practices.
 
-### Phase 1 — Quick Fixes (v1.2.0)
+### Phase 1 — Quick Fixes (v1.2.0) ✅ DONE
 
-- [ ] **Reduce learning steps from 3 to 2**
-  - Current: step 0 → 1 → 2 → graduate (3 steps)
-  - Target: step 0 → 1 → graduate (2 steps: 1min, 10min)
-  - Change: Graduate at `stepIndex >= 2` instead of `>= 3`
+- [x] **Reduce learning steps from 3 to 2**
+  - Changed: Graduate at `stepIndex >= 2` instead of `>= 3`
+  - Now: 1min → 10min → graduate (2 steps)
 
-- [ ] **Fix queue priority order**
+- [ ] **Fix queue priority order** (deferred to v1.3.0)
   - Current: `ORDER BY card_state DESC` (alphabetical = wrong)
   - Target: `relearning > learning > review > new`
-  - Implement proper priority sorting
 
-- [ ] **Allow ending session with learning cards pending**
+- [ ] **Allow ending session with learning cards pending** (deferred to v1.3.0)
   - Current: Must rate Good on ALL learning cards to end
   - Target: "End Session" button saves learning cards for later
 
