@@ -3,6 +3,8 @@ import path from 'path'
 import log from 'electron-log'
 import { getSettings } from './settings'
 import type {
+  Collection,
+  CollectionInsert,
   MediaSource,
   MediaSourceInsert,
   Sentence,
@@ -33,6 +35,14 @@ import type {
   DrillVerdict,
 } from '../../src/types/index'
 
+interface DbCollection {
+  id: number
+  name: string
+  color: string | null
+  sort_order: number
+  created_at: string
+}
+
 interface DbMediaSource {
   id: number
   type: string
@@ -44,6 +54,7 @@ interface DbMediaSource {
   sentence_count: number | null
   added_at: string
   last_opened: string | null
+  collection_id: number | null
 }
 
 interface DbSentence {
@@ -509,6 +520,107 @@ export class DatabaseService {
           PRAGMA foreign_keys=ON;
         `,
       },
+      {
+        version: 7,
+        sql: `
+          -- Collections/Folders table
+          CREATE TABLE IF NOT EXISTS collections (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT    NOT NULL,
+            color       TEXT,
+            sort_order  INTEGER NOT NULL DEFAULT 0,
+            created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+          );
+
+          -- Add collection_id to media_sources
+          ALTER TABLE media_sources ADD COLUMN collection_id INTEGER REFERENCES collections(id) ON DELETE SET NULL;
+          CREATE INDEX IF NOT EXISTS idx_media_sources_collection ON media_sources(collection_id);
+        `,
+      },
+      {
+        version: 8,
+        sql: `
+          -- Add 'relearning' to card_state CHECK constraint
+          -- SQLite requires table recreation to change CHECK constraints
+          PRAGMA foreign_keys=OFF;
+
+          ALTER TABLE cards RENAME TO cards_old;
+
+          CREATE TABLE cards (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            deck_id         INTEGER NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
+            front_html      TEXT    NOT NULL,
+            back_html       TEXT    NOT NULL,
+            tags_json       TEXT    NOT NULL DEFAULT '[]',
+            word            TEXT,
+            reading         TEXT,
+            language        TEXT,
+            source_sentence TEXT,
+            source_id       INTEGER REFERENCES media_sources(id) ON DELETE SET NULL,
+            due_date        TEXT    NOT NULL DEFAULT (date('now')),
+            interval        INTEGER NOT NULL DEFAULT 0,
+            ease_factor     REAL    NOT NULL DEFAULT 2.5,
+            reps            INTEGER NOT NULL DEFAULT 0,
+            lapses          INTEGER NOT NULL DEFAULT 0,
+            card_state      TEXT    NOT NULL DEFAULT 'new'
+                                    CHECK(card_state IN ('new', 'learning', 'relearning', 'review', 'suspended')),
+            created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+            last_reviewed   TEXT,
+            native_definition TEXT,
+            part_of_speech    TEXT,
+            level_info        TEXT,
+            audio_word        TEXT,
+            step_index        INTEGER NOT NULL DEFAULT 0
+          );
+
+          INSERT INTO cards (
+            id, deck_id, front_html, back_html, tags_json, word, reading, language,
+            source_sentence, source_id, due_date, interval, ease_factor, reps, lapses,
+            card_state, created_at, last_reviewed, native_definition, part_of_speech,
+            level_info, audio_word, step_index
+          ) SELECT
+            id, deck_id, front_html, back_html, tags_json, word, reading, language,
+            source_sentence, source_id, due_date, interval, ease_factor, reps, lapses,
+            card_state, created_at, last_reviewed, native_definition, part_of_speech,
+            level_info, audio_word, step_index
+          FROM cards_old;
+
+          DROP TABLE cards_old;
+
+          CREATE INDEX IF NOT EXISTS idx_cards_deck ON cards(deck_id);
+          CREATE INDEX IF NOT EXISTS idx_cards_due  ON cards(due_date, card_state);
+          CREATE INDEX IF NOT EXISTS idx_cards_word ON cards(word, language);
+
+          PRAGMA foreign_keys=ON;
+        `,
+      },
+      {
+        version: 9,
+        sql: `
+          -- Fix review_log FK reference (v8 migration broke it by renaming cards table)
+          PRAGMA foreign_keys=OFF;
+
+          CREATE TABLE review_log_new (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            card_id         INTEGER NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+            reviewed_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+            rating          INTEGER NOT NULL CHECK(rating IN (1, 2, 3, 4)),
+            interval_before INTEGER NOT NULL DEFAULT 0,
+            interval_after  INTEGER NOT NULL DEFAULT 0,
+            ease_before     REAL    NOT NULL DEFAULT 2.5,
+            time_taken_ms   INTEGER
+          );
+
+          INSERT INTO review_log_new SELECT * FROM review_log;
+          DROP TABLE review_log;
+          ALTER TABLE review_log_new RENAME TO review_log;
+
+          CREATE INDEX IF NOT EXISTS idx_review_log_card ON review_log(card_id, reviewed_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_review_log_date ON review_log(reviewed_at DESC);
+
+          PRAGMA foreign_keys=ON;
+        `,
+      },
     ]
 
     this.db.exec(`
@@ -529,6 +641,61 @@ export class DatabaseService {
         log.info(`Applied migration v${migration.version}`)
       }
     }
+  }
+
+  // ─── Collections ─────────────────────────────────────────────────────────────
+
+  getCollections(): Collection[] {
+    this.assertInitialized()
+    const rows = this.db
+      .prepare('SELECT * FROM collections ORDER BY sort_order, name')
+      .all() as DbCollection[]
+    return rows.map(this.rowToCollection.bind(this))
+  }
+
+  createCollection(data: CollectionInsert): Collection {
+    this.assertInitialized()
+    const maxOrder = this.db
+      .prepare('SELECT COALESCE(MAX(sort_order), 0) as max FROM collections')
+      .get() as { max: number }
+    const result = this.db.prepare(`
+      INSERT INTO collections (name, color, sort_order)
+      VALUES (@name, @color, @sortOrder)
+    `).run({
+      name: data.name,
+      color: data.color ?? null,
+      sortOrder: maxOrder.max + 1,
+    })
+    return this.getCollectionById(result.lastInsertRowid as number)!
+  }
+
+  getCollectionById(id: number): Collection | null {
+    this.assertInitialized()
+    const row = this.db
+      .prepare('SELECT * FROM collections WHERE id = ?')
+      .get(id) as DbCollection | undefined
+    return row ? this.rowToCollection(row) : null
+  }
+
+  renameCollection(id: number, name: string): void {
+    this.assertInitialized()
+    this.db.prepare('UPDATE collections SET name = ? WHERE id = ?').run(name, id)
+  }
+
+  updateCollectionColor(id: number, color: string | null): void {
+    this.assertInitialized()
+    this.db.prepare('UPDATE collections SET color = ? WHERE id = ?').run(color, id)
+  }
+
+  deleteCollection(id: number): void {
+    this.assertInitialized()
+    // Sources in this collection will have collection_id set to NULL (ON DELETE SET NULL)
+    this.db.prepare('DELETE FROM collections WHERE id = ?').run(id)
+  }
+
+  moveSourceToCollection(sourceId: number, collectionId: number | null): void {
+    this.assertInitialized()
+    this.db.prepare('UPDATE media_sources SET collection_id = ? WHERE id = ?').run(collectionId, sourceId)
   }
 
   // ─── Media Sources ───────────────────────────────────────────────────────────
@@ -805,17 +972,63 @@ export class DatabaseService {
       .run(result.dueDate, result.interval, result.easeFactor, result.reps, result.lapses, result.cardState, result.stepIndex, id)
   }
 
-  getDueCards(deckId: number, limit = 100): Card[] {
+  getDueCards(deckId: number, limits?: { newCardsPerDay: number; reviewsPerDay: number }): Card[] {
     this.assertInitialized()
-    const rows = this.db
-      .prepare(`
-        SELECT * FROM cards
-        WHERE deck_id = ? AND card_state != 'suspended' AND due_date <= datetime('now')
-        ORDER BY card_state DESC, due_date ASC
-        LIMIT ?
-      `)
-      .all(deckId, limit) as DbCard[]
-    return rows.map(this.rowToCard)
+
+    if (!limits) {
+      const rows = this.db
+        .prepare(`
+          SELECT * FROM cards
+          WHERE deck_id = ? AND card_state != 'suspended' AND due_date <= datetime('now')
+          ORDER BY
+            CASE card_state
+              WHEN 'learning' THEN 1
+              WHEN 'relearning' THEN 1
+              WHEN 'review' THEN 2
+              WHEN 'new' THEN 3
+            END,
+            due_date ASC
+          LIMIT 200
+        `)
+        .all(deckId) as DbCard[]
+      return rows.map(this.rowToCard)
+    }
+
+    const newStudiedToday = this.getNewCardsStudiedToday()
+    const reviewsDoneToday = this.getReviewsDoneToday()
+
+    const newRemaining = Math.max(0, limits.newCardsPerDay - newStudiedToday)
+    const reviewsRemaining = Math.max(0, limits.reviewsPerDay - reviewsDoneToday)
+
+    const result: Card[] = []
+
+    if (reviewsRemaining > 0) {
+      const reviewRows = this.db
+        .prepare(`
+          SELECT * FROM cards
+          WHERE deck_id = ? AND card_state IN ('learning', 'relearning', 'review') AND due_date <= datetime('now')
+          ORDER BY
+            CASE card_state WHEN 'learning' THEN 1 WHEN 'relearning' THEN 1 WHEN 'review' THEN 2 END,
+            due_date ASC
+          LIMIT ?
+        `)
+        .all(deckId, reviewsRemaining) as DbCard[]
+      result.push(...reviewRows.map(this.rowToCard))
+    }
+
+    if (newRemaining > 0) {
+      const newRows = this.db
+        .prepare(`
+          SELECT * FROM cards
+          WHERE deck_id = ? AND card_state = 'new' AND due_date <= datetime('now')
+          ORDER BY due_date ASC
+          LIMIT ?
+        `)
+        .all(deckId, newRemaining) as DbCard[]
+      result.push(...newRows.map(this.rowToCard))
+    }
+
+    return result
   }
 
   getAllCards(deckId: number): Card[] {
@@ -1254,6 +1467,28 @@ export class DatabaseService {
     return row.count
   }
 
+  getNewCardsStudiedToday(): number {
+    this.assertInitialized()
+    const row = this.db
+      .prepare(`
+        SELECT COUNT(*) as count FROM review_log
+        WHERE date(reviewed_at) = date('now') AND interval_before = 0
+      `)
+      .get() as { count: number }
+    return row.count
+  }
+
+  getReviewsDoneToday(): number {
+    this.assertInitialized()
+    const row = this.db
+      .prepare(`
+        SELECT COUNT(*) as count FROM review_log
+        WHERE date(reviewed_at) = date('now') AND interval_before > 0
+      `)
+      .get() as { count: number }
+    return row.count
+  }
+
   getPatternsMinedToday(): number {
     this.assertInitialized()
     const row = this.db
@@ -1322,13 +1557,40 @@ export class DatabaseService {
           SELECT date(created_at) as day FROM patterns
           UNION
           SELECT date(created_at) as day FROM drill_attempts
-          ORDER BY day DESC
         ),
         numbered AS (
           SELECT
             day,
             ROW_NUMBER() OVER (ORDER BY day DESC) as rn,
             CAST(julianday(date('now')) - julianday(day) AS INTEGER) as days_ago
+          FROM daily
+        )
+        SELECT COUNT(*) as streak
+        FROM numbered
+        WHERE days_ago = rn - 1
+      `)
+      .get() as { streak: number }
+    return rows.streak
+  }
+
+  getStreakAtRisk(): number {
+    this.assertInitialized()
+    const rows = this.db
+      .prepare(`
+        WITH daily AS (
+          SELECT date(reviewed_at) as day FROM review_log
+          UNION
+          SELECT date(created_at) as day FROM cards
+          UNION
+          SELECT date(created_at) as day FROM patterns
+          UNION
+          SELECT date(created_at) as day FROM drill_attempts
+        ),
+        numbered AS (
+          SELECT
+            day,
+            ROW_NUMBER() OVER (ORDER BY day DESC) as rn,
+            CAST(julianday(date('now', '-1 day')) - julianday(day) AS INTEGER) as days_ago
           FROM daily
         )
         SELECT COUNT(*) as streak
@@ -1402,11 +1664,11 @@ export class DatabaseService {
     const patternsMinedToday = this.getPatternsMinedToday()
     const drillAttemptsToday = this.getDrillAttemptsToday()
     const retentionRate = this.getRetentionRate()
-    const currentStreak = this.getCurrentStreak()
+    const validLearningDay = reviewsToday > 0 || cardsCreatedToday > 0 || patternsMinedToday > 0 || drillAttemptsToday > 0
+    const currentStreak = validLearningDay ? this.getCurrentStreak() : this.getStreakAtRisk()
     const dailyHistory = this.getCardCountByDay(30)
     const recentCards = this.getRecentCards(10)
     const totalPatterns = this.getTotalPatterns()
-    const validLearningDay = reviewsToday > 0 || cardsCreatedToday > 0 || patternsMinedToday > 0 || drillAttemptsToday > 0
     const nextAction = dueToday > 0
       ? {
         type: 'review' as const,
@@ -1523,6 +1785,17 @@ export class DatabaseService {
       sentenceCount: row.sentence_count ?? undefined,
       addedAt: row.added_at,
       lastOpened: row.last_opened ?? undefined,
+      collectionId: row.collection_id ?? undefined,
+    }
+  }
+
+  private rowToCollection(row: DbCollection): Collection {
+    return {
+      id: row.id,
+      name: row.name,
+      color: row.color ?? undefined,
+      sortOrder: row.sort_order,
+      createdAt: row.created_at,
     }
   }
 

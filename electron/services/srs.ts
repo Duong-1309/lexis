@@ -87,9 +87,23 @@ export function calculateNextReview(card: Card, rating: ReviewRating): SRSResult
     }
   }
 
-  const cardState: CardState = stepIndex >= 2
-    ? (interval >= 21 ? 'review' : 'learning')
-    : 'learning'
+  // Determine cardState:
+  // - If lapsed (rating=1 on graduated card), goes to 'relearning'
+  // - If stepIndex >= 2, graduated → 'review'
+  // - Backward compat: if card was already 'review' and didn't lapse, keep 'review'
+  // - If card was 'relearning' and graduates, goes to 'review'
+  let cardState: CardState
+  if (isGraduated && rating === 1) {
+    cardState = 'relearning' // lapse: re-enter relearning steps
+  } else if (stepIndex >= 2) {
+    cardState = 'review' // graduated
+  } else if (card.cardState === 'review') {
+    cardState = 'review' // backward compat: keep review if already review
+  } else if (card.cardState === 'relearning') {
+    cardState = 'relearning' // stay in relearning until graduate
+  } else {
+    cardState = 'learning'
+  }
 
   return {
     interval,

@@ -2,10 +2,25 @@ export type Language = 'ja' | 'zh' | 'ko' | 'en' | 'fr' | 'es'
 export type NativeLanguage = 'vi' | 'en'
 export type MediaType = 'subtitle' | 'epub' | 'web' | 'text' | 'youtube'
 export type CardTemplate = 'Basic' | 'Cloze' | 'Word' | 'Sentence' | 'Pattern' | 'DrillAttempt'
-export type CardState = 'new' | 'learning' | 'review' | 'suspended'
+export type CardState = 'new' | 'learning' | 'relearning' | 'review' | 'suspended'
 export type ReviewRating = 1 | 2 | 3 | 4 // Again / Hard / Good / Easy
 export type DrillType = 'translation' | 'transform' | 'substitution' | 'free_production' | 'cloze'
 export type DrillVerdict = 'correct' | 'needs_fix' | 'incorrect'
+
+// ─── Collections ─────────────────────────────────────────────────────────────
+
+export interface Collection {
+  id: number
+  name: string
+  color?: string
+  sortOrder: number
+  createdAt: string
+}
+
+export interface CollectionInsert {
+  name: string
+  color?: string
+}
 
 // ─── Media ───────────────────────────────────────────────────────────────────
 
@@ -20,6 +35,7 @@ export interface MediaSource {
   sentenceCount?: number
   addedAt: string
   lastOpened?: string
+  collectionId?: number
 }
 
 export interface MediaSourceInsert {
@@ -497,6 +513,15 @@ export interface MediaAPI {
   delete(sourceId: number): Promise<IPCResult<void>>
   rename(sourceId: number, newTitle: string): Promise<IPCResult<void>>
   markOpened(sourceId: number): Promise<IPCResult<void>>
+  moveToCollection(sourceId: number, collectionId: number | null): Promise<IPCResult<void>>
+}
+
+export interface CollectionsAPI {
+  list(): Promise<IPCResult<Collection[]>>
+  create(name: string, color?: string): Promise<IPCResult<Collection>>
+  rename(id: number, name: string): Promise<IPCResult<void>>
+  delete(id: number): Promise<IPCResult<void>>
+  updateColor(id: number, color: string | null): Promise<IPCResult<void>>
 }
 
 export interface YouTubeSubtitleInfo {
@@ -655,6 +680,7 @@ export interface UpdaterAPI {
 
 export interface LexisAPI {
   media: MediaAPI
+  collections: CollectionsAPI
   youtube: YouTubeAPI
   reader: ReaderAPI
   dictionary: DictionaryAPI

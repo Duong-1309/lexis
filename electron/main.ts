@@ -382,6 +382,29 @@ function setupIPCHandlers(): void {
     wrapResult(() => db.markOpened(sourceId)),
   )
 
+  ipcMain.handle('media:move-to-collection', (_event, sourceId: number, collectionId: number | null) =>
+    wrapResult(() => db.moveSourceToCollection(sourceId, collectionId)),
+  )
+
+  // ─── collections ────────────────────────────────────────────────────────────
+  ipcMain.handle('collections:list', () => wrapResult(() => db.getCollections()))
+
+  ipcMain.handle('collections:create', (_event, name: string, color?: string) =>
+    wrapResult(() => db.createCollection({ name, color })),
+  )
+
+  ipcMain.handle('collections:rename', (_event, id: number, name: string) =>
+    wrapResult(() => db.renameCollection(id, name)),
+  )
+
+  ipcMain.handle('collections:delete', (_event, id: number) =>
+    wrapResult(() => db.deleteCollection(id)),
+  )
+
+  ipcMain.handle('collections:update-color', (_event, id: number, color: string | null) =>
+    wrapResult(() => db.updateCollectionColor(id, color)),
+  )
+
   // ─── youtube ────────────────────────────────────────────────────────────────
   ipcMain.handle('youtube:check-available', () =>
     wrapResult(() => checkYtDlpAvailable()),
@@ -538,7 +561,10 @@ function setupIPCHandlers(): void {
 
   // ─── cards ───────────────────────────────────────────────────────────────────
   ipcMain.handle('cards:due', (_event, deckId: number) =>
-    wrapResult(() => db.getDueCards(deckId)),
+    wrapResult(() => {
+      const settings = getSettings()
+      return db.getDueCards(deckId, settings.scheduling)
+    }),
   )
   ipcMain.handle('cards:all', (_event, deckId: number) =>
     wrapResult(() => db.getAllCards(deckId)),

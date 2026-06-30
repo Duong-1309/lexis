@@ -45,6 +45,15 @@ const lexisAPI: LexisAPI = {
     delete: (sourceId) => ipcRenderer.invoke('media:delete', sourceId),
     rename: (sourceId, newTitle) => ipcRenderer.invoke('media:rename', sourceId, newTitle),
     markOpened: (sourceId) => ipcRenderer.invoke('media:mark-opened', sourceId),
+    moveToCollection: (sourceId, collectionId) => ipcRenderer.invoke('media:move-to-collection', sourceId, collectionId),
+  },
+
+  collections: {
+    list: () => ipcRenderer.invoke('collections:list'),
+    create: (name, color) => ipcRenderer.invoke('collections:create', name, color),
+    rename: (id, name) => ipcRenderer.invoke('collections:rename', id, name),
+    delete: (id) => ipcRenderer.invoke('collections:delete', id),
+    updateColor: (id, color) => ipcRenderer.invoke('collections:update-color', id, color),
   },
 
   youtube: {

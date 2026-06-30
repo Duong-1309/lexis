@@ -1244,11 +1244,23 @@ sprint is about habit formation and user experience flow, not monetization.
 
 ---
 
-## Sprint 11 — Import Library Management (Planned)
+## Sprint 11 — Import Library Management ✅ v1.3.0
 
 ### Sprint 11 Goal
 
-Users can organize, edit, and manage imported content: rename titles, group into folders/collections, add tags, filter/search library, and bulk operations.
+Users can organize, edit, and manage imported content: rename titles, group into folders/collections, filter/search library, and bulk operations.
+
+**Delivered:**
+- Edit source title (rename) in details modal
+- Folders/Collections system with create/delete/move
+- Library search by title
+- Multi-select with bulk delete and bulk move
+- Source details panel with full metadata
+- Collapsible sidebar (⌘B) with macOS HIG layout
+
+**Deferred:**
+- Tags system → v1.4.0
+- Advanced filters (type, language, progress) → search is sufficient for now
 
 ### Sprint 11 Tasks
 
@@ -1339,13 +1351,13 @@ Users can organize, edit, and manage imported content: rename titles, group into
 
 ### Sprint 11 Acceptance Tests
 
-- [ ] Can rename any imported source title
-- [ ] Can create folders and move sources into them
-- [ ] Can add/remove tags on sources
-- [ ] Can search library by title
-- [ ] Can filter by type, language, progress
-- [ ] Multi-select and bulk delete works
-- [ ] Source details panel shows all metadata
+- [x] Can rename any imported source title
+- [x] Can create folders and move sources into them
+- [ ] Can add/remove tags on sources (deferred to v1.4.0)
+- [x] Can search library by title
+- [ ] Can filter by type, language, progress (deferred - search sufficient)
+- [x] Multi-select and bulk delete works
+- [x] Source details panel shows all metadata
 
 ---
 
@@ -1761,13 +1773,13 @@ Based on `algorithm.txt` recommendations and Anki/FSRS best practices.
   - Changed: Graduate at `stepIndex >= 2` instead of `>= 3`
   - Now: 1min → 10min → graduate (2 steps)
 
-- [ ] **Fix queue priority order** (deferred to v1.3.0)
-  - Current: `ORDER BY card_state DESC` (alphabetical = wrong)
-  - Target: `relearning > learning > review > new`
+- [x] **Fix queue priority order** ✅ v1.3.0
+  - Fixed: `CASE card_state WHEN 'learning' THEN 1 WHEN 'relearning' THEN 1 WHEN 'review' THEN 2 WHEN 'new' THEN 3 END`
+  - Now: learning/relearning > review > new
 
-- [ ] **Allow ending session with learning cards pending** (deferred to v1.3.0)
-  - Current: Must rate Good on ALL learning cards to end
-  - Target: "End Session" button saves learning cards for later
+- [x] **Allow ending session with learning cards pending** ✅ v1.3.0
+  - Session auto-ends when no cards immediately due
+  - Shows "Session paused" with pending count
 
 ### Phase 2 — Config & Limits (v1.3.0)
 
@@ -1790,9 +1802,9 @@ Based on `algorithm.txt` recommendations and Anki/FSRS best practices.
   easyIntervalDays: 4
   ```
 
-- [ ] **Add 'relearning' card state**
-  - Current: only 'new', 'learning', 'review', 'suspended'
-  - Add: 'relearning' for lapsed cards re-entering steps
+- [x] **Add 'relearning' card state** ✅ v1.3.0
+  - Now: 'new', 'learning', 'relearning', 'review', 'suspended'
+  - Lapsed cards enter 'relearning' at stepIndex=1
 
 - [ ] **Separate queues in ReviewSession**
   - Due review cards (overdue first)

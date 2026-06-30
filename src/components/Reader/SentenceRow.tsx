@@ -158,7 +158,7 @@ export function SentenceRow({
         </span>
       )}
 
-      <p className="text-sm leading-relaxed text-gray-200 select-text">
+      <p className="text-gray-200 select-text">
         {isMinedSentence ? (
           <span className="epub-mined-sentence" data-sentence={sentence.content.toLowerCase().replace(/[\p{P}\p{S}]+/gu, ' ').replace(/\s+/g, ' ').trim()}>
             {sentence.content}

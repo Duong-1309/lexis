@@ -3,12 +3,13 @@ import type { Card, ReviewRating, Language } from '../../types'
 import { isTypingTarget } from '../../hooks/useHotkeys'
 import { AudioButton } from '../Lookup/AudioButton'
 
-type Phase = 'front' | 'back' | 'waiting' | 'done'
+type Phase = 'front' | 'back' | 'done'
 
 interface SessionStats {
   total: number
   correct: number
   startTime: number
+  learningLeft: number
 }
 
 interface ReviewSessionProps {
@@ -65,7 +66,7 @@ export function ReviewSession({ deckId, deckName, onEnd }: ReviewSessionProps) {
   const [cards, setCards] = useState<Card[]>([])
   const [phase, setPhase] = useState<Phase>('front')
   const [flipped, setFlipped] = useState(false)
-  const [stats, setStats] = useState<SessionStats>({ total: 0, correct: 0, startTime: Date.now() })
+  const [stats, setStats] = useState<SessionStats>({ total: 0, correct: 0, startTime: Date.now(), learningLeft: 0 })
   const [loading, setLoading] = useState(true)
   const cardShownAt = useRef<number>(Date.now())
   const audioRef = useRef<HTMLDivElement>(null)
@@ -84,6 +85,15 @@ export function ReviewSession({ deckId, deckName, onEnd }: ReviewSessionProps) {
   const currentCard = cards[0] ?? null
   const remaining = cards.length
   const learningCount = cards.filter(c => (c.stepIndex ?? 0) < 2).length
+
+  const handleEndSession = useCallback(() => {
+    if (stats.total === 0) {
+      onEnd()
+      return
+    }
+    setStats(prev => ({ ...prev, learningLeft: learningCount }))
+    setPhase('done')
+  }, [stats.total, learningCount, onEnd])
   const showAudioButton = Boolean(
     currentCard?.word &&
     currentCard?.language &&
@@ -99,9 +109,11 @@ export function ReviewSession({ deckId, deckName, onEnd }: ReviewSessionProps) {
 
     const dueIndex = nextDueIndex(nextCards)
     if (dueIndex === -1) {
-      setCards(nextCards.sort((a, b) => dueTimeMs(a) - dueTimeMs(b)))
-      setFlipped(false)
-      setPhase('waiting')
+      // No cards due right now - end session with learning cards pending
+      const pendingCount = nextCards.filter(c => (c.stepIndex ?? 0) < 2).length
+      setStats(prev => ({ ...prev, learningLeft: pendingCount }))
+      setCards([])
+      setPhase('done')
       return
     }
 
@@ -158,18 +170,11 @@ export function ReviewSession({ deckId, deckName, onEnd }: ReviewSessionProps) {
       if (e.key.toLowerCase() === 'p') {
         audioRef.current?.querySelector('button')?.click()
       }
-      if (e.key === 'Escape') onEnd()
+      if (e.key === 'Escape') handleEndSession()
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [phase, handleShow, handleRate, onEnd])
-
-  useEffect(() => {
-    if (phase !== 'waiting' || cards.length === 0) return
-    const waitMs = Math.max(250, dueTimeMs(cards[0]) - Date.now())
-    const timeout = window.setTimeout(() => advanceQueue(cards), waitMs)
-    return () => window.clearTimeout(timeout)
-  }, [advanceQueue, cards, phase])
+  }, [phase, handleShow, handleRate, handleEndSession])
 
   if (loading) {
     return (
@@ -179,6 +184,10 @@ export function ReviewSession({ deckId, deckName, onEnd }: ReviewSessionProps) {
         </div>
       </SessionShell>
     )
+  }
+
+  if (phase === 'done') {
+    return <SessionSummary stats={stats} onEnd={onEnd} />
   }
 
   if (cards.length === 0) {
@@ -194,26 +203,8 @@ export function ReviewSession({ deckId, deckName, onEnd }: ReviewSessionProps) {
     )
   }
 
-  if (phase === 'done') {
-    return <SessionSummary stats={stats} onEnd={onEnd} />
-  }
-
-  if (phase === 'waiting') {
-    const seconds = currentCard ? Math.max(1, Math.ceil((dueTimeMs(currentCard) - Date.now()) / 1000)) : 0
-    return (
-      <SessionShell deckName={deckName} reviewed={stats.total} remaining={remaining} learning={learningCount} onEnd={onEnd}>
-        <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-500">
-          <p className="text-sm">Next learning card in {seconds}s.</p>
-          <button onClick={onEnd} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
-            Back to library
-          </button>
-        </div>
-      </SessionShell>
-    )
-  }
-
   return (
-    <SessionShell deckName={deckName} reviewed={stats.total} remaining={remaining} learning={learningCount} onEnd={onEnd}>
+    <SessionShell deckName={deckName} reviewed={stats.total} remaining={remaining} learning={learningCount} onEnd={handleEndSession}>
       <div className="flex h-full min-h-0 flex-col items-center justify-center gap-4 px-6 py-6">
         {/* Card */}
         <div
@@ -365,13 +356,18 @@ function SessionSummary({ stats, onEnd }: { stats: SessionStats; onEnd: () => vo
   const seconds = elapsed % 60
   const accuracy = stats.total > 0 ? Math.round((stats.correct / stats.total) * 100) : 0
   const timeStr = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`
+  const endedEarly = stats.learningLeft > 0
 
   return (
     <div className="fixed inset-0 z-40 flex flex-col items-center justify-center bg-gray-950 gap-8">
       <div className="text-center">
         <div className="text-4xl mb-2">{accuracy >= 80 ? '🎉' : accuracy >= 50 ? '👍' : '📚'}</div>
-        <h2 className="text-xl font-semibold text-gray-100 mb-1">Session complete</h2>
-        <p className="text-sm text-gray-500">Keep it up!</p>
+        <h2 className="text-xl font-semibold text-gray-100 mb-1">
+          {endedEarly ? 'Session paused' : 'Session complete'}
+        </h2>
+        <p className="text-sm text-gray-500">
+          {endedEarly ? `${stats.learningLeft} learning card${stats.learningLeft > 1 ? 's' : ''} pending` : 'Keep it up!'}
+        </p>
       </div>
 
       <div className="flex gap-6">

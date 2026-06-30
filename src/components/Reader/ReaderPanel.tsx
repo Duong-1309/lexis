@@ -8,6 +8,12 @@ import { debugLog } from '../../utils/debugLog'
 export interface MinedCardEntry { card: Card; deckName: string }
 export interface MinedPatternEntry { pattern: Pattern }
 
+interface ReaderSettings {
+  fontSize: number
+  lineHeight: number
+  fontFamily: string
+}
+
 interface ReaderPanelProps {
   sentences: Sentence[]
   language: Language
@@ -29,6 +35,7 @@ interface ReaderPanelProps {
   onEpubWordSelect?: (word: string) => void
   allCardsMap?: Map<string, MinedCardEntry>
   minedPatterns?: Pattern[]
+  readerSettings?: ReaderSettings
 }
 
 const CJK_RE = /[　-鿿가-힯]/
@@ -276,6 +283,7 @@ function EPUBReader({
   searchQuery,
   onSearchOpenChange,
   onSearchQueryChange,
+  readerSettings,
 }: {
   chapters: EPUBChapter[]
   selectedChapterId: string | null
@@ -293,6 +301,7 @@ function EPUBReader({
   searchQuery?: string
   onSearchOpenChange?: (open: boolean) => void
   onSearchQueryChange?: (query: string) => void
+  readerSettings: { fontSize: number; lineHeight: number; fontFamily: string }
 }) {
   const [initialChapterLoaded, setInitialChapterLoaded] = useState(false)
 
@@ -720,7 +729,7 @@ function EPUBReader({
                 [&_em]:italic [&_strong]:font-semibold [&_strong]:text-gray-100
                 [&_img]:max-w-full [&_img]:rounded
                 [&_a]:text-blue-400"
-              style={{ fontSize: 16, lineHeight: 1.9, userSelect: 'text' }}
+              style={{ fontSize: readerSettings.fontSize, lineHeight: readerSettings.lineHeight, fontFamily: readerSettings.fontFamily, userSelect: 'text' }}
               dangerouslySetInnerHTML={{ __html: processedHtml! }}
             />
           )}
@@ -804,6 +813,7 @@ export function ReaderPanel({
   onEpubWordSelect,
   allCardsMap,
   minedPatterns = [],
+  readerSettings = { fontSize: 16, lineHeight: 1.9, fontFamily: 'sans-serif' },
 }: ReaderPanelProps) {
   const selectedRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -1051,6 +1061,7 @@ export function ReaderPanel({
         searchQuery={searchQuery}
         onSearchOpenChange={setSearchOpen}
         onSearchQueryChange={setSearchQuery}
+        readerSettings={readerSettings}
       />
     )
   }
@@ -1116,11 +1127,11 @@ export function ReaderPanel({
       {/* Sentence list */}
       <div
         ref={containerRef}
-        className="flex flex-col gap-0.5 py-2 overflow-y-auto flex-1 select-text"
+        className="flex flex-col py-4 px-10 overflow-y-auto flex-1 select-text max-w-3xl mx-auto w-full"
         onMouseOver={handleSubtitleMouseOver}
         onMouseUp={handleSubtitleMouseUp}
         onMouseLeave={() => { setSubtitleTooltip(null); setSubtitlePatternTooltip(null) }}
-        style={{ userSelect: 'text' }}
+        style={{ fontSize: readerSettings.fontSize, lineHeight: readerSettings.lineHeight, fontFamily: readerSettings.fontFamily, userSelect: 'text' }}
       >
         {sentences.map((sentence, idx) => {
           const isSelected = selectedSentence?.id === sentence.id
