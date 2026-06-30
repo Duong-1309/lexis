@@ -355,11 +355,18 @@ class DictionaryService {
       // FTS trigram fallback. Keep it for substantial lookup terms, but avoid
       // noisy semantic matches for short function words and contractions.
       if (!rows.length && !isContraction && lower.length >= 4) {
-        rows = db.prepare(`
+        const ftsRows = db.prepare(`
           SELECT e.data_json FROM entries_fts
           JOIN entries e ON e.id = entries_fts.rowid
-          WHERE entries_fts MATCH ? LIMIT 5
+          WHERE entries_fts MATCH ? LIMIT 10
         `).all(this.escapeFts5Query(lower)) as { data_json: string }[]
+
+        // Filter FTS results: only keep entries where lemma starts with or contains searched term
+        rows = ftsRows.filter((r) => {
+          const entry = JSON.parse(r.data_json) as DictEntry
+          const lemma = entry.word.toLowerCase()
+          return lemma.startsWith(lower) || lemma.includes(lower) || lower.startsWith(lemma)
+        })
       }
 
       return rows.map((r) => JSON.parse(r.data_json) as DictEntry)

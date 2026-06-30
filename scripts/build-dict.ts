@@ -282,7 +282,8 @@ async function buildWordNet(): Promise<void> {
       const exMatches = gloss.match(/"([^"]+)"/g)
       if (exMatches) examples.push(...exMatches.map((e) => e.slice(1, -1)))
 
-      synsets.set(offset, { pos: POS_LABEL[ssType] ?? ssType, definition, examples })
+      // Key must include POS because offset is only unique within each data file
+      synsets.set(`${pos}:${offset}`, { pos: POS_LABEL[ssType] ?? ssType, definition, examples })
     }
   }
 
@@ -302,10 +303,13 @@ async function buildWordNet(): Promise<void> {
 
       const senses: Sense[] = []
       for (let i = 0; i < synsetCnt; i++) {
-        const synset = synsets.get(tokens[offsetStart + i])
+        // Use pos:offset key to match the synsets map
+        const synset = synsets.get(`${pos}:${tokens[offsetStart + i]}`)
         if (synset) senses.push(synset)
       }
-      if (senses.length) lemmaMap.set(lemma, senses)
+      // Merge with existing senses for this lemma (lemma can appear in multiple index files)
+      const existing = lemmaMap.get(lemma) ?? []
+      if (senses.length) lemmaMap.set(lemma, [...existing, ...senses])
     }
   }
 

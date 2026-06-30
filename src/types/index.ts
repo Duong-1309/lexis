@@ -667,6 +667,17 @@ export interface SettingsAPI {
   selectDirectory(): Promise<IPCResult<string | null>>
 }
 
+export interface CacheSize {
+  translation: number
+  audio: number
+}
+
+export interface CacheAPI {
+  getSize(): Promise<IPCResult<CacheSize>>
+  clearTranslation(): Promise<IPCResult<boolean>>
+  clearAudio(): Promise<IPCResult<boolean>>
+}
+
 export interface UpdaterAPI {
   getVersion(): Promise<IPCResult<string>>
   checkForUpdates(): Promise<IPCResult<UpdateInfo | null>>
@@ -693,6 +704,7 @@ export interface LexisAPI {
   stats: StatsAPI
   missions: MissionsAPI
   settings: SettingsAPI
+  cache: CacheAPI
   updater: UpdaterAPI
 }
 

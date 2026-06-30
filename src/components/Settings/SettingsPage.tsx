@@ -3,6 +3,14 @@ import type { AIProvider, CardTemplate, NativeLanguage, UserSettings, UpdateInfo
 import { COMMON_TIME_ZONES, DEFAULT_TIME_ZONE } from '../../utils/time'
 import { DictionaryManager } from './DictionaryManager'
 
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`
+}
+
 type UpdateStatus = 'idle' | 'checking' | 'available' | 'error' | 'up-to-date'
 
 interface SettingsPageProps {
@@ -126,13 +134,16 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
   const [anthropicStatus, setAnthropicStatus] = useState<KeyStatus>('idle')
   const [openaiStatus, setOpenaiStatus] = useState<KeyStatus>('idle')
   const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
 
   // Update state
   const [appVersion, setAppVersion] = useState<string>('')
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>('idle')
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null)
   const [updateError, setUpdateError] = useState<string | null>(null)
+
+  // Cache state
+  const [cacheSize, setCacheSize] = useState<{ translation: number; audio: number } | null>(null)
+  const [clearingCache, setClearingCache] = useState<'translation' | 'audio' | null>(null)
 
   useEffect(() => {
     window.lexis.updater.getVersion().then((r) => {
@@ -173,6 +184,32 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
     })
   }, [])
 
+  // Load cache size
+  useEffect(() => {
+    window.lexis.cache.getSize().then((r) => {
+      if (r.data) setCacheSize(r.data)
+    })
+  }, [])
+
+  const loadCacheSize = async () => {
+    const r = await window.lexis.cache.getSize()
+    if (r.data) setCacheSize(r.data)
+  }
+
+  const handleClearTranslationCache = async () => {
+    setClearingCache('translation')
+    await window.lexis.cache.clearTranslation()
+    await loadCacheSize()
+    setClearingCache(null)
+  }
+
+  const handleClearAudioCache = async () => {
+    setClearingCache('audio')
+    await window.lexis.cache.clearAudio()
+    await loadCacheSize()
+    setClearingCache(null)
+  }
+
   const testKey = async (key: string, provider: AIProvider, setStatus: (s: KeyStatus) => void) => {
     if (!key.trim()) return
     setStatus('testing')
@@ -211,8 +248,8 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
     setLocalSettings(normalizedSettings)
     setLearningStepsInput(formatStepInput(normalizedSettings.scheduling.learningStepsMinutes))
     setSaving(false)
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+    // Auto-close after save
+    onClose()
   }
 
   if (!settings) {
@@ -277,6 +314,42 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
             <div className="pt-2">
               <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Dictionaries</h4>
               <DictionaryManager />
+            </div>
+
+            <div className="border-t border-white/5 pt-6 mt-6">
+              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Cache</h4>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between py-2 px-3 bg-gray-800/60 border border-white/10 rounded-lg">
+                  <div>
+                    <p className="text-sm text-gray-300">Translation Cache</p>
+                    <p className="text-xs text-gray-500">
+                      {cacheSize ? formatBytes(cacheSize.translation) : '...'}
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleClearTranslationCache}
+                    disabled={clearingCache === 'translation' || !cacheSize?.translation}
+                    className="px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    {clearingCache === 'translation' ? 'Clearing...' : 'Clear'}
+                  </button>
+                </div>
+                <div className="flex items-center justify-between py-2 px-3 bg-gray-800/60 border border-white/10 rounded-lg">
+                  <div>
+                    <p className="text-sm text-gray-300">Audio Cache</p>
+                    <p className="text-xs text-gray-500">
+                      {cacheSize ? formatBytes(cacheSize.audio) : '...'}
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleClearAudioCache}
+                    disabled={clearingCache === 'audio' || !cacheSize?.audio}
+                    className="px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    {clearingCache === 'audio' ? 'Clearing...' : 'Clear'}
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div className="border-t border-white/5 pt-6 mt-6">
@@ -645,13 +718,9 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
             <button
               onClick={handleSave}
               disabled={saving}
-              className={`px-5 py-2 text-sm font-medium rounded-lg transition-colors ${
-                saved
-                  ? 'bg-green-600/80 text-white'
-                  : 'bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50'
-              }`}
+              className="px-5 py-2 text-sm font-medium rounded-lg transition-colors bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50"
             >
-              {saved ? 'Saved!' : saving ? 'Saving...' : 'Save'}
+              {saving ? 'Saving...' : 'Save'}
             </button>
           </div>
         </div>

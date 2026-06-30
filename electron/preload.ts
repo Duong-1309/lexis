@@ -205,6 +205,12 @@ const lexisAPI: LexisAPI = {
     selectDirectory: () => ipcRenderer.invoke('settings:select-dir'),
   },
 
+  cache: {
+    getSize: () => ipcRenderer.invoke('cache:get-size'),
+    clearTranslation: () => ipcRenderer.invoke('cache:clear-translation'),
+    clearAudio: () => ipcRenderer.invoke('cache:clear-audio'),
+  },
+
   updater: {
     getVersion: () => ipcRenderer.invoke('updater:get-version'),
     checkForUpdates: () => ipcRenderer.invoke('updater:check'),

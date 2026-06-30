@@ -78,6 +78,36 @@ class AudioService {
       }).on('error', (e) => { try { fs.unlinkSync(dest) } catch {} reject(e) })
     })
   }
+
+  getCacheSize(): number {
+    if (!this.cacheDir || !fs.existsSync(this.cacheDir)) return 0
+    try {
+      const files = fs.readdirSync(this.cacheDir)
+      return files.reduce((total, file) => {
+        const filePath = path.join(this.cacheDir, file)
+        const stat = fs.statSync(filePath)
+        return total + (stat.isFile() ? stat.size : 0)
+      }, 0)
+    } catch {
+      return 0
+    }
+  }
+
+  clearCache(): void {
+    if (!this.cacheDir || !fs.existsSync(this.cacheDir)) return
+    try {
+      const files = fs.readdirSync(this.cacheDir)
+      for (const file of files) {
+        const filePath = path.join(this.cacheDir, file)
+        if (fs.statSync(filePath).isFile()) {
+          fs.unlinkSync(filePath)
+        }
+      }
+      log.info(`Cleared ${files.length} audio cache files`)
+    } catch (e) {
+      log.error('Failed to clear audio cache:', e)
+    }
+  }
 }
 
 export const audioService = new AudioService()

@@ -745,6 +745,29 @@ function setupIPCHandlers(): void {
     return { data: result.canceled ? null : result.filePaths[0], error: null }
   })
 
+  // ─── cache management ───────────────────────────────────────────────────────
+  ipcMain.handle('cache:get-size', () =>
+    wrapResult(() => {
+      const translationSize = db.getTranslationCacheSize()
+      const audioSize = audioService.getCacheSize()
+      return { translation: translationSize, audio: audioSize }
+    }),
+  )
+
+  ipcMain.handle('cache:clear-translation', () =>
+    wrapResult(() => {
+      db.clearTranslationCache()
+      return true
+    }),
+  )
+
+  ipcMain.handle('cache:clear-audio', () =>
+    wrapResult(() => {
+      audioService.clearCache()
+      return true
+    }),
+  )
+
   // ─── updater ────────────────────────────────────────────────────────────────
   ipcMain.handle('updater:get-version', () =>
     wrapResult(() => app.getVersion()),

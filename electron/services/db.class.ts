@@ -1939,6 +1939,22 @@ export class DatabaseService {
     this.assertInitialized()
     this.db.prepare('DELETE FROM definition_translations').run()
   }
+
+  // Alias for cache management
+  clearTranslationCache(): void {
+    this.clearDefinitionTranslations()
+  }
+
+  getTranslationCacheSize(): number {
+    this.assertInitialized()
+    // Get approximate size in bytes (row count * avg row size)
+    const stats = this.db.prepare(`
+      SELECT COUNT(*) as count,
+             COALESCE(SUM(LENGTH(word) + LENGTH(translation) + 20), 0) as size
+      FROM definition_translations
+    `).get() as { count: number; size: number }
+    return stats.size
+  }
 }
 
 export const db = new DatabaseService()
